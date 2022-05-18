@@ -1,10 +1,9 @@
+from cmath import nan
 from jesse.strategies import Strategy, cached
 import jesse.indicators as ta
 from jesse import utils
 import numpy as np
 import jesse.helpers as jh
-from wt import wt
-from rsimfi import rsimfi
 import utils as tu
 from strategies.TFC.utils import utils as tu
 import strategies.TFC.lib as lib
@@ -149,6 +148,14 @@ class TFC(Strategy):
         self.pre_st2Trend_Tf2                       = 0.0
 
 
+        self.stComboTrend                           = 0.0
+        self.stComboTrend_Tf1                       = 0.0
+        self.stComboTrend_Tf2                       = 0.0
+        self.stComboTsl_Tf1                         = 0
+        self.stComboTsl_Tf2                         = 0
+
+
+
 
     def hyperparameters(self):
         return [ 
@@ -194,7 +201,6 @@ class TFC(Strategy):
             {'name': 'shortThreshold', 'title': 'Short Indicator Threshold', 'type': int, 'min': 1, 'max': 6, 'default': 3 }, 
 
         ]
-
 
     def on_first_candle(self):
         self.starting_balance = self.capital
@@ -275,9 +281,7 @@ class TFC(Strategy):
             self.svars["dmiLength"]                     = self.hp["shortDmiLength"]
             self.svars["lrsiAlpha"]                     = self.hp["shortLrsiAlpha"]
             self.svars["lrsiFeLength"]                  = self.hp["shortLrsiFeLength"]
-            self.svars["threshold"]                     = self.hp["shortThreshold"]
-
-           
+            self.svars["threshold"]                     = self.hp["shortThreshold"]   
         
     def on_new_candle(self):
         if self.debug_log > 0:  
@@ -529,26 +533,80 @@ class TFC(Strategy):
         self.pre_st2Trend_Tf2 = self.st2Trend_Tf2
         # self.pre_close = self.close
     
-    
     # Combine the SuperTrends on the first timeframe into one, determine values, and plot
-    # StComboTrend_Tf1 = 0.0
-    # StComboTrend_Tf1 := St1Trend_Tf1 == St2Trend_Tf1 ? St1Trend_Tf1 : na
-    # StComboTrendUp_Tf1 = St1TrendUp_Tf1 < St2TrendUp_Tf1 ? St1TrendUp_Tf1 : St2TrendUp_Tf1
-    # StComboTrendDown_Tf1 = St1TrendDown_Tf1 > St2TrendDown_Tf1 ? St1TrendDown_Tf1 : St2TrendDown_Tf1
-    # StComboTsl_Tf1 = StComboTrend_Tf1 == 1 ? StComboTrendUp_Tf1 : StComboTrend_Tf1 == -1 ? StComboTrendDown_Tf1 : na
-    # StComboLinecolor_Tf1 = StComboTrend_Tf1 == 1 ? #00ff00 : #ff0000
-    # plot(StComboTsl_Tf1, color = StComboLinecolor_Tf1, style = plot.style_linebr, linewidth = 2, title = "SuperTrend Combo (Chart Timeframe)")
+    def stComboTrend_first(self):
+        # StComboTrend_Tf1 = 0.0
+        # StComboTrend_Tf1 := St1Trend_Tf1 == St2Trend_Tf1 ? St1Trend_Tf1 : na
+        if self.st1Trend_Tf1 == self.st2Trend_Tf1:
+            self.stComboTrend_Tf1 = self.st1Trend_Tf1
+        else:
+            self.stComboTrend_Tf1 = nan
 
+        # StComboTrendUp_Tf1 = St1TrendUp_Tf1 < St2TrendUp_Tf1 ? St1TrendUp_Tf1 : St2TrendUp_Tf1
+        if self.st1TrendUp_Tf1 < self.st2TrendUp_Tf1:
+            self.stComboTrendUp_Tf1 = self.st1TrendUp_Tf1
+        else:
+            self.stComboTrendUp_Tf1 = self.st2TrendUp_Tf1
+
+        # StComboTrendDown_Tf1 = St1TrendDown_Tf1 > St2TrendDown_Tf1 ? St1TrendDown_Tf1 : St2TrendDown_Tf1
+        if self.st1TrendDown_Tf1 < self.st2TrendDown_Tf1:
+            self.stComboTrendDown_Tf1 = self.st1TrendDown_Tf1
+        else:
+            self.stComboTrendDown_Tf1 = self.st2TrendDown_Tf1
+
+        # StComboTsl_Tf1 = StComboTrend_Tf1 == 1 ? StComboTrendUp_Tf1 : StComboTrend_Tf1 == -1 ? StComboTrendDown_Tf1 : na
+        if self.stComboTrend_Tf1 == 1:
+            self.stComboTsl_Tf1 = self.stComboTrendUp_Tf1
+        else:
+            if self.stComboTrend_Tf1 == -1:
+                self.stComboTsl_Tf1 = self.stComboTrendDown_Tf1
+            else:
+                self.stComboTsl_Tf1 = nan
+
+        # StComboLinecolor_Tf1 = StComboTrend_Tf1 == 1 ? #00ff00 : #ff0000
+        # plot(StComboTsl_Tf1, color = StComboLinecolor_Tf1, style = plot.style_linebr, linewidth = 2, title = "SuperTrend Combo (Chart Timeframe)")
+  
     # Combine the SuperTrends on the second timeframe into one and determine values
-    # StComboTrend_Tf2 = 0.0
-    # StComboTrend_Tf2 := St1Trend_Tf2 == St2Trend_Tf2 ? St1Trend_Tf2 : na
-    # StComboTrendUp_Tf2 = St1TrendUp_Tf2 < St2TrendUp_Tf2 ? St1TrendUp_Tf2 : St2TrendUp_Tf2
-    # StComboTrendDown_Tf2 = St1TrendDown_Tf2 > St2TrendDown_Tf2 ? St1TrendDown_Tf2 : St2TrendDown_Tf2
-    # StComboTsl_Tf2 = StComboTrend_Tf2 == 1 ? StComboTrendUp_Tf2 : StComboTrend_Tf2 == -1 ? StComboTrendDown_Tf2 : na
+    def stComboTrend_second(self):
+        # StComboTrend_Tf2 = 0.0
+        # StComboTrend_Tf2 := St1Trend_Tf2 == St2Trend_Tf2 ? St1Trend_Tf2 : na
+        if self.st1Trend_Tf2 == self.st2Trend_Tf2:
+            self.stComboTrend_Tf2 = self.st1Trend_Tf2
+        else:
+            self.stComboTrend_Tf2 = nan
+
+        # StComboTrendUp_Tf2 = St1TrendUp_Tf2 < St2TrendUp_Tf2 ? St1TrendUp_Tf2 : St2TrendUp_Tf2
+        if self.st1TrendUp_Tf2 < self.st2TrendUp_Tf2:
+            self.stComboTrendUp_Tf2 = self.st1TrendUp_Tf2
+        else:
+            self.stComboTrendUp_Tf2 = self.st2TrendUp_Tf2
+
+        # StComboTrendDown_Tf2 = St1TrendDown_Tf2 > St2TrendDown_Tf2 ? St1TrendDown_Tf2 : St2TrendDown_Tf2
+        if self.st1TrendDown_Tf2 < self.st2TrendDown_Tf2:
+            self.stComboTrendDown_Tf2 = self.st1TrendDown_Tf2
+        else:
+            self.stComboTrendDown_Tf2 = self.st2TrendDown_Tf2
+
+        # StComboTsl_Tf2 = StComboTrend_Tf2 == 1 ? StComboTrendUp_Tf2 : StComboTrend_Tf2 == -1 ? StComboTrendDown_Tf2 : na
+        if self.stComboTrend_Tf2 == 1:
+            self.stComboTsl_Tf2 = self.stComboTrendUp_Tf2
+        else:
+            if self.stComboTrend_Tf2 == -1:
+                self.stComboTsl_Tf2 = self.stComboTrendDown_Tf2
+            else:
+                self.stComboTsl_Tf2 = nan
 
     # Determine Overall SuperTrend Direction
-    # StComboTrend = 0.0
-    # StComboTrend := GetConfirmation == true ? StComboTrend_Tf1 == StComboTrend_Tf2 ? StComboTrend_Tf1 : na : StComboTrend_Tf1
+    def stDirection(self):
+        # StComboTrend = 0.0
+        # StComboTrend := GetConfirmation == true ? StComboTrend_Tf1 == StComboTrend_Tf2 ? StComboTrend_Tf1 : na : StComboTrend_Tf1
+        if self.vars["getComfirmation"] == True:
+            if self.stComboTrend_Tf1 == self.stComboTrend_Tf2:
+                self.stComboTrend = self.stComboTrend_Tf1
+            else:
+                self.stComboTrend = nan
+        else:
+            self.stComboTrend = self.stComboTrend_Tf1
 
     # Define Aroon Indicator and Determine Status
     # AroonIndicatorUpper = 100 * (highestbars(high, AroonLength + 1) + AroonLength) / AroonLength
@@ -563,52 +621,84 @@ class TFC(Strategy):
     # AroonOscillatorSignal := crossover(AroonOscillator, -80) ? 1 : crossunder(AroonOscillator, 80) ? -1 : AroonOscillatorSignal[1]
 
     # Define Directional Movement Index and Determine Values
-    # DmiUp = change(high)
-    # DmiDown = -change(low)
-    # DmiPlusDm = na(DmiUp) ? na : (DmiUp > DmiDown and DmiUp > 0 ? DmiUp : 0)
-    # DmiMinusDm = na(DmiDown) ? na : (DmiDown > DmiUp and DmiDown > 0 ? DmiDown : 0)
-    # DmiTrur = rma(tr, DmiLength)
-    # DmiPlus = fixnan(100 * rma(DmiPlusDm, DmiLength) / DmiTrur)
-    # DmiMinus = fixnan(100 * rma(DmiMinusDm, DmiLength) / DmiTrur)
-    # DmiTrend = 0
-    # DmiTrend := crossover(DmiPlus, DmiMinus) ? 1 : crossover(DmiMinus, DmiPlus) ? -1 : DmiTrend[1]
+    # def dmi(self):
+        # DmiUp = change(high)
+
+        # DmiDown = -change(low)
+
+        # DmiPlusDm = na(DmiUp) ? na : (DmiUp > DmiDown and DmiUp > 0 ? DmiUp : 0)
+
+        # DmiMinusDm = na(DmiDown) ? na : (DmiDown > DmiUp and DmiDown > 0 ? DmiDown : 0)
+
+        # DmiTrur = rma(tr, DmiLength)
+
+        # DmiPlus = fixnan(100 * rma(DmiPlusDm, DmiLength) / DmiTrur)
+
+        # DmiMinus = fixnan(100 * rma(DmiMinusDm, DmiLength) / DmiTrur)
+
+        # DmiTrend = 0
+        # DmiTrend := crossover(DmiPlus, DmiMinus) ? 1 : crossover(DmiMinus, DmiPlus) ? -1 : DmiTrend[1]
+        
 
     # Define Laguerre RSI and Determine Values
-    # LrsiOC = (open + nz(close[1])) / 2
-    # LrsiHC = max(high, nz(close[1]))
-    # LrsiLC = min(low, nz(close[1]))
-    # LrsiFeSrc = (LrsiOC + LrsiHC + LrsiLC + close) / 4
-    # LrsiFeAlpha = log(sum((LrsiHC - LrsiLC) / (highest(LrsiFeLength) - lowest(LrsiFeLength)), LrsiFeLength)) / log(LrsiFeLength)
-    # LrsiAlphaCalc = LrsiApplyFractalsEnergy ? LrsiFeAlpha : LrsiAlpha
-    # LrsiL0 = 0.0
-    # LrsiL0 := LrsiAlphaCalc * (LrsiApplyFractalsEnergy ? LrsiFeSrc : close) + (1 - LrsiAlphaCalc) * nz(LrsiL0[1])
-    # LrsiL1 = 0.0
-    # LrsiL1 := -(1 - LrsiAlphaCalc) * LrsiL0 + nz(LrsiL0[1]) + (1 - LrsiAlphaCalc) * nz(LrsiL1[1])
-    # LrsiL2 = 0.0
-    # LrsiL2 := -(1 - LrsiAlphaCalc) * LrsiL1 + nz(LrsiL1[1]) + (1 - LrsiAlphaCalc) * nz(LrsiL2[1])
-    # LrsiL3 = 0.0
-    # LrsiL3 := -(1 - LrsiAlphaCalc) * LrsiL2 + nz(LrsiL2[1]) + (1 - LrsiAlphaCalc) * nz(LrsiL3[1])
-    # LrsiCU = 0.0
-    # LrsiCU := (LrsiL0 >= LrsiL1 ? LrsiL0 - LrsiL1 : 0) + (LrsiL1 >= LrsiL2 ? LrsiL1 - LrsiL2 : 0) + (LrsiL2 >= LrsiL3 ? LrsiL2 - LrsiL3 : 0)
-    # LrsiCD = 0.0
-    # LrsiCD := (LrsiL0 >= LrsiL1 ? 0 : LrsiL1 - LrsiL0) + (LrsiL1 >= LrsiL2 ? 0 : LrsiL2 - LrsiL1) + (LrsiL2 >= LrsiL3 ? 0 : LrsiL3 - LrsiL2)
-    # Lrsi = LrsiCU + LrsiCD != 0
-    #         ? LrsiApplyNormalization ? 100 * LrsiCU / (LrsiCU + LrsiCD) : LrsiCU / (LrsiCU + LrsiCD)
-    #         : 0
-    # LrsiMult = (LrsiApplyNormalization ? 100 : 1)
-    # LrsiOverBought = 0.8 * LrsiMult
-    # LrsiOverSold = 0.2 * LrsiMult
-    # LrsiSignal = 0
-    # LrsiSignal := crossover(Lrsi, LrsiOverSold) ? 1 : crossunder(Lrsi, LrsiOverBought) ? -1 : LrsiSignal[1]
+    # def lrsi(self):
+        # LrsiOC = (open + nz(close[1])) / 2
 
+        # LrsiHC = max(high, nz(close[1]))
+
+        # LrsiLC = min(low, nz(close[1]))
+
+        # LrsiFeSrc = (LrsiOC + LrsiHC + LrsiLC + close) / 4
+
+        # LrsiFeAlpha = log(sum((LrsiHC - LrsiLC) / (highest(LrsiFeLength) - lowest(LrsiFeLength)), LrsiFeLength)) / log(LrsiFeLength)
+        
+        # LrsiAlphaCalc = LrsiApplyFractalsEnergy ? LrsiFeAlpha : LrsiAlpha
+       
+        # LrsiL0 = 0.0
+        # LrsiL0 := LrsiAlphaCalc * (LrsiApplyFractalsEnergy ? LrsiFeSrc : close) + (1 - LrsiAlphaCalc) * nz(LrsiL0[1])
+        
+        # LrsiL1 = 0.0
+        # LrsiL1 := -(1 - LrsiAlphaCalc) * LrsiL0 + nz(LrsiL0[1]) + (1 - LrsiAlphaCalc) * nz(LrsiL1[1])
+        
+        # LrsiL2 = 0.0
+        # LrsiL2 := -(1 - LrsiAlphaCalc) * LrsiL1 + nz(LrsiL1[1]) + (1 - LrsiAlphaCalc) * nz(LrsiL2[1])
+        
+        # LrsiL3 = 0.0
+        # LrsiL3 := -(1 - LrsiAlphaCalc) * LrsiL2 + nz(LrsiL2[1]) + (1 - LrsiAlphaCalc) * nz(LrsiL3[1])
+        
+        # LrsiCU = 0.0
+        # LrsiCU := (LrsiL0 >= LrsiL1 ? LrsiL0 - LrsiL1 : 0) + (LrsiL1 >= LrsiL2 ? LrsiL1 - LrsiL2 : 0) + (LrsiL2 >= LrsiL3 ? LrsiL2 - LrsiL3 : 0)
+        
+        # LrsiCD = 0.0
+        # LrsiCD := (LrsiL0 >= LrsiL1 ? 0 : LrsiL1 - LrsiL0) + (LrsiL1 >= LrsiL2 ? 0 : LrsiL2 - LrsiL1) + (LrsiL2 >= LrsiL3 ? 0 : LrsiL3 - LrsiL2)
+        
+        # Lrsi = LrsiCU + LrsiCD != 0
+        #         ? LrsiApplyNormalization ? 100 * LrsiCU / (LrsiCU + LrsiCD) : LrsiCU / (LrsiCU + LrsiCD)
+        #         : 0
+        
+        # LrsiMult = (LrsiApplyNormalization ? 100 : 1)
+        
+        # LrsiOverBought = 0.8 * LrsiMult
+        
+        # LrsiOverSold = 0.2 * LrsiMult
+        
+        # LrsiSignal = 0
+        # LrsiSignal := crossover(Lrsi, LrsiOverSold) ? 1 : crossunder(Lrsi, LrsiOverBought) ? -1 : LrsiSignal[1]
+        
     # Determine Strength of Trend Based on Status of All Indicators
-    # MaTrendCalc = StComboTrend == MaTrend ? StComboTrend : 0
-    # AroonIndictorTrendCalc = StComboTrend == AroonIndictorTrend ? StComboTrend : 0
-    # AroonOscillatorSignalCalc = StComboTrend == AroonOscillatorSignal ? StComboTrend : 0
-    # DmiTrendCalc = StComboTrend == DmiTrend ? StComboTrend : 0
-    # LrsiSignalCalc = StComboTrend == LrsiSignal ? StComboTrend : 0
-    # TrendStrength = MaTrendCalc + AroonIndictorTrendCalc + AroonOscillatorSignalCalc + DmiTrendCalc + LrsiSignalCalc
+    # def trendStrength(self):
+        # MaTrendCalc = StComboTrend == MaTrend ? StComboTrend : 0
 
+        # AroonIndictorTrendCalc = StComboTrend == AroonIndictorTrend ? StComboTrend : 0
+
+        # AroonOscillatorSignalCalc = StComboTrend == AroonOscillatorSignal ? StComboTrend : 0
+
+        # DmiTrendCalc = StComboTrend == DmiTrend ? StComboTrend : 0
+
+        # LrsiSignalCalc = StComboTrend == LrsiSignal ? StComboTrend : 0
+
+        # TrendStrength = MaTrendCalc + AroonIndictorTrendCalc + AroonOscillatorSignalCalc + DmiTrendCalc + LrsiSignalCalc
+ 
 
 
     def should_long(self) -> bool:
