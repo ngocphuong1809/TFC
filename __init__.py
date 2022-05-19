@@ -1,4 +1,5 @@
 from cmath import nan
+import math
 from jesse.strategies import Strategy, cached
 import jesse.indicators as ta
 from jesse import utils
@@ -153,6 +154,24 @@ class TFC(Strategy):
         self.stComboTrend_Tf2                       = 0.0
         self.stComboTsl_Tf1                         = 0
         self.stComboTsl_Tf2                         = 0
+
+        self.dmiTrend                               = 0
+
+        self.pre_LrsiL0                             = 0.0
+        self.LrsiL0                                 = 0.0
+        self.pre_LrsiL1                             = 0.0
+        self.LrsiL1                                 = 0.0
+        self.pre_LrsiL2                             = 0.0
+        self.LrsiL2                                 = 0.0
+        self.pre_LrsiL3                             = 0.0
+        self.LrsiL3                                 = 0.0
+        self.LrsiCU                                 = 0.0
+        self.LrsiCD                                 = 0.0
+        self.pre_LrsiSignal                         = 0
+        self.LrsiSignal                             = 0
+
+
+
 
 
 
@@ -349,21 +368,21 @@ class TFC(Strategy):
         risk_loss = self.capital * self.vars["botRisk"]  / (self.atr * self.svars["slMult"] * 100) 
         return risk_loss
 
-    def f_atr(self, source, length):
+    def f_atr(self, tr, length):
         if self.atrSmoothing == 'RMA':
-            temp = ta.rma(self.candles, length=length, source_type=source)
+            temp = ta.rma(tr, length=length)
         elif self.atrSmoothing == 'SMA':
-            temp = ta.sma(self.candles, period=length, source_type=source)
+            temp = ta.sma(tr, period=length)
         elif self.atrSmoothing == ' EMA':
-            temp = ta.ema(self.candles, period=length, source_type=source)
+            temp = ta.ema(tr, period=length)
         else:
-            temp = ta.wma(self.candles, period=length, source_type=source)
+            temp = ta.wma(tr, period=length)
         return temp
 
     @property
     @cached
     def c_atr(self):
-        tr = ta.trange(self.candles)
+        tr = ta.trange(self.candles, sequential=True)
         temp = self.f_atr(tr,self.atrLength)
         return temp
     
@@ -621,17 +640,43 @@ class TFC(Strategy):
     # AroonOscillatorSignal := crossover(AroonOscillator, -80) ? 1 : crossunder(AroonOscillator, 80) ? -1 : AroonOscillatorSignal[1]
 
     # Define Directional Movement Index and Determine Values
-    # def dmi(self):
+    def dmi(self, dmiLength):
+        # Function Change: Difference between current value and previous, x - x[y].
+        # length (series[integer]) Offset from the current bar to the previous bar. Optional, if not given, length = 1 is used. Can be series[integer].
+        
+        candles = slice_candles(self.candles, sequential=True)
+        pre_high = candles[-2:,3][0]
+        pre_low = candles[-2:,4][0]
+
         # DmiUp = change(high)
+        DmiUp = self.high - pre_high
 
         # DmiDown = -change(low)
+        DmiDown = - (self.low - pre_low)
 
         # DmiPlusDm = na(DmiUp) ? na : (DmiUp > DmiDown and DmiUp > 0 ? DmiUp : 0)
+        if math.isnan(DmiUp):
+            DmiPlusDm = nan
+        else:
+            if DmiUp > DmiDown and DmiUp > 0:
+                DmiPlusDm = DmiUp
+            else:
+                DmiPlusDm = 0
 
         # DmiMinusDm = na(DmiDown) ? na : (DmiDown > DmiUp and DmiDown > 0 ? DmiDown : 0)
+        if math.isnan(DmiDown):
+            DmiMinusDm = nan
+        else:
+            if DmiDown > DmiUp and DmiDown > 0:
+                DmiMinusDm = DmiDown
+            else:
+                DmiMinusDm = 0
 
         # DmiTrur = rma(tr, DmiLength)
+        tr = ta.trange(self.candles, sequential=True)
+        DmiTrur = ta.rma(tr, length=dmiLength)
 
+        # Function fixnan(): For a given series replaces NaN values with previous nearest non-NaN value.
         # DmiPlus = fixnan(100 * rma(DmiPlusDm, DmiLength) / DmiTrur)
 
         # DmiMinus = fixnan(100 * rma(DmiMinusDm, DmiLength) / DmiTrur)
@@ -641,49 +686,121 @@ class TFC(Strategy):
         
 
     # Define Laguerre RSI and Determine Values
-    # def lrsi(self):
+    def lrsi(self, LrsiFeLength, LrsiAlpha):
+        candles = slice_candles(self.candles, sequential=True)
+        pre_close = candles[-2:,2][0]
+
         # LrsiOC = (open + nz(close[1])) / 2
+        LrsiOC = (self.open + lib.nz(pre_close)) / 2
 
         # LrsiHC = max(high, nz(close[1]))
+        LrsiHC = max(self.high, lib.nz(pre_close))
 
         # LrsiLC = min(low, nz(close[1]))
+        LrsiLC = min(self.low, lib.nz(pre_close))
 
         # LrsiFeSrc = (LrsiOC + LrsiHC + LrsiLC + close) / 4
+        LrsiFeSrc = (LrsiOC + LrsiHC + LrsiLC + self.close) / 4
 
         # LrsiFeAlpha = log(sum((LrsiHC - LrsiLC) / (highest(LrsiFeLength) - lowest(LrsiFeLength)), LrsiFeLength)) / log(LrsiFeLength)
-        
+        LrsiFeAlpha = math.log(sum((LrsiHC - LrsiLC) / (max(LrsiFeLength) - min(LrsiFeLength)), LrsiFeLength)) / math.log(LrsiFeLength)
+
         # LrsiAlphaCalc = LrsiApplyFractalsEnergy ? LrsiFeAlpha : LrsiAlpha
+        if self.vars["lrsiApplyFractalsEnergy"]:
+            LrsiAlphaCalc = LrsiFeAlpha
+        else:
+            LrsiAlphaCalc = LrsiAlpha
        
         # LrsiL0 = 0.0
         # LrsiL0 := LrsiAlphaCalc * (LrsiApplyFractalsEnergy ? LrsiFeSrc : close) + (1 - LrsiAlphaCalc) * nz(LrsiL0[1])
-        
+        if self.vars["lrsiApplyFractalsEnergy"]:
+            temp = LrsiFeSrc
+        else:
+            temp = self.close
+        self.LrsiL0 = LrsiAlphaCalc * temp + (1 - LrsiAlphaCalc) * lib.nz(self.pre_LrsiL0)
+        self.pre_LrsiL0 = self.LrsiL0
+
         # LrsiL1 = 0.0
         # LrsiL1 := -(1 - LrsiAlphaCalc) * LrsiL0 + nz(LrsiL0[1]) + (1 - LrsiAlphaCalc) * nz(LrsiL1[1])
-        
+        self.LrsiL1 = -(1 - LrsiAlphaCalc) * self.LrsiL0 + lib.nz(self.pre_LrsiL0) + (1 - LrsiAlphaCalc) * lib.nz(self.pre_LrsiL1)
+        self.pre_LrsiL1 = self.LrsiL1
+
         # LrsiL2 = 0.0
         # LrsiL2 := -(1 - LrsiAlphaCalc) * LrsiL1 + nz(LrsiL1[1]) + (1 - LrsiAlphaCalc) * nz(LrsiL2[1])
-        
+        self.LrsiL2 = -(1 - LrsiAlphaCalc) * self.LrsiL1 + lib.nz(self.pre_LrsiL1) + (1 - LrsiAlphaCalc) * lib.nz(self.pre_LrsiL2)
+        self.pre_LrsiL2 = self.LrsiL2
+
         # LrsiL3 = 0.0
         # LrsiL3 := -(1 - LrsiAlphaCalc) * LrsiL2 + nz(LrsiL2[1]) + (1 - LrsiAlphaCalc) * nz(LrsiL3[1])
+        self.LrsiL3 = -(1 - LrsiAlphaCalc) * self.LrsiL2 + lib.nz(self.pre_LrsiL2) + ( 1 - LrsiAlphaCalc) * lib.nz(self.pre_LrsiL3)
+        self.pre_LrsiL3 = self.LrsiL3
         
         # LrsiCU = 0.0
         # LrsiCU := (LrsiL0 >= LrsiL1 ? LrsiL0 - LrsiL1 : 0) + (LrsiL1 >= LrsiL2 ? LrsiL1 - LrsiL2 : 0) + (LrsiL2 >= LrsiL3 ? LrsiL2 - LrsiL3 : 0)
-        
+        if self.LrsiL0 >= self.LrsiL1:
+            temp1 = self.LrsiL0 - self.LrsiL1
+        else:
+            temp1 = 0
+        if self.LrsiL1 >= self.LrsiL2:
+            temp2 = self.LrsiL1 - self.LrsiL2
+        else:
+            temp2 = 0
+        if self.LrsiL2 >= self.LrsiL3:
+            temp3 = self.LrsiL2 - self.LrsiL3
+        else:
+            temp3 = 0
+        self.LrsiCU = temp1 + temp2 + temp3
+
         # LrsiCD = 0.0
         # LrsiCD := (LrsiL0 >= LrsiL1 ? 0 : LrsiL1 - LrsiL0) + (LrsiL1 >= LrsiL2 ? 0 : LrsiL2 - LrsiL1) + (LrsiL2 >= LrsiL3 ? 0 : LrsiL3 - LrsiL2)
+        if self.LrsiL0 >= self.LrsiL1:
+            temp1 = 0
+        else:
+            temp1 = self.LrsiL1 - self.LrsiL0
+        if self.LrsiL1 >= self.LrsiL2:
+            temp2 = 0
+        else:
+            temp2 = self.LrsiL2 - self.LrsiL1
+        if self.LrsiL2 >= self.LrsiL3:
+            temp3 = 0
+        else:
+            temp3 = self.LrsiL3 - self.LrsiL2
+        self.LrsiCD = temp1 + temp2 + temp3
         
         # Lrsi = LrsiCU + LrsiCD != 0
         #         ? LrsiApplyNormalization ? 100 * LrsiCU / (LrsiCU + LrsiCD) : LrsiCU / (LrsiCU + LrsiCD)
         #         : 0
+        if self.LrsiCU + self.LrsiCD != 0:
+            if self.vars["lrsiApplyFractalsEnergy"]:
+                Lrsi = 100 * self.LrsiCU / (self. LrsiCU + self.LrsiCD)
+            else:
+                Lrsi = self.LrsiCU / (self. LrsiCU + self.LrsiCD)
+        else:
+            Lrsi = 0
+            
         
         # LrsiMult = (LrsiApplyNormalization ? 100 : 1)
+        if self.vars["lrsiApplyFractalsEnergy"]:
+            LrsiMult = 100
+        else:
+            LrsiMult = 1
         
         # LrsiOverBought = 0.8 * LrsiMult
-        
+        LrsiOverBought = 0.8 * LrsiMult
+
         # LrsiOverSold = 0.2 * LrsiMult
-        
+        LrsiOverSold = 0.2 * LrsiMult
+
         # LrsiSignal = 0
         # LrsiSignal := crossover(Lrsi, LrsiOverSold) ? 1 : crossunder(Lrsi, LrsiOverBought) ? -1 : LrsiSignal[1]
+        if utils.crossed(Lrsi, LrsiOverSold, "above"):
+            self.LrsiSignal = 1
+        elif  utils.crossed(Lrsi, LrsiOverBought, "below"):
+            self.LrsiSignal = -1
+        else:
+            self.LrsiSignal = self.pre_LrsiSignal
+
+
         
     # Determine Strength of Trend Based on Status of All Indicators
     # def trendStrength(self):
