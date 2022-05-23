@@ -1,5 +1,3 @@
-from cmath import nan
-import math
 from jesse.strategies import Strategy, cached
 import jesse.indicators as ta
 from jesse import utils
@@ -30,15 +28,16 @@ class TFC(Strategy):
         self.sliced_candles                         = {}
         self.is_optimising                          = False
         self.params_overdrive                       = True          ## Overwrite params to file, turn off for production, turn on for testing / optimizing
-
+        
+        self.pyramiding_levels = 0
+        self.last_opened_price = 0
+        self.last_was_profitable = False
         self.pre_index                              = 0
         self.qty                                    = 0
 
-        self.long_sl                                = 0
-        self.long_tp                                = 0
-        self.short_sl                               = 0
-        self.short_tp                               = 0
-
+        self.entry_atr                              = 0
+        self.entry_price                            = 0
+        self.last_win                               = False
         self.initial_entry                          = 0
         self.starting_capital                       = 0
         self.starting_balance                       = 0
@@ -46,10 +45,15 @@ class TFC(Strategy):
         self.onlyLong                               = False         # True: Only Long Position
         self.onlyShort                              = False         # True: Only Short Position
         self.LS                                     = True          # True: Long and Short Position
-
+        # self.vars["enableLS"]                       = True
         self.vars["enableLong"]                     = True          # Enable Long Entry
         self.vars["enableShort"]                    = True          # Enable Short Entry
         self.vars["botRisk"]                        = 2             # Bot Risk % each entry
+        self.vars["maximum_pyramiding_levels"]      = 2
+        self.vars["trailing_stoploss"]              = 2
+        self.vars["move_on_no_entry"]               = True
+
+
         # self.botLeverage                            = 10          # Bot Leverage
         self.vars["botPricePrecision"]              = 2             # Bot Order Price Precision
         self.vars["botBasePrecision"]               = 3             # Bot Order Coin Precision
@@ -61,11 +65,11 @@ class TFC(Strategy):
         self.vars["lrsiApplyNormalization"]         = False         # LRSI:Apply Normalization to [0, 100]?
         
         # Long
-        self.lvars["AtrSLMultipier"]                = 1.6           # Short ATR SL Multipier
-        self.lvars["AtrTPMultipier"]                = 3             # Short ATR TP Multipier
-        self.lvars["enableTrailingSL"]              = False         # Enable Trailing SL Type 1
+        self.lvars["atrSLMultipier"]                = 1.6           # Short ATR SL Multipier
+        self.lvars["atrTPMultipier"]                = 3             # Short ATR TP Multipier
+        # self.lvars["enableTrailingSL"]              = False         # Enable Trailing SL Type 1
         self.lvars["trailingSLPercent"]             = 0.5           # Trailing SL 1 Percent
-        self.lvars["enableTrailingSL2"]             = True          # Enable Trailing SL Type 2: 3 steps
+        # self.lvars["enableTrailingSL2"]             = True          # Enable Trailing SL Type 2: 3 steps
         self.lvars["trailingSLPercent1"]            = 0.8           # Step 1: Red Zone
         self.lvars["trailingSLPercent2"]            = 1             # Step 2: Red Zone
         self.lvars["trailingSLPercent3"]            = 1.1           # Step 3: Green Zone
@@ -85,11 +89,11 @@ class TFC(Strategy):
         self.lvars["threshold"]                     = 3             # Indicator Threshold
         
         # Short
-        self.svars["AtrSLMultipier"]                = 1.6           # Short ATR SL Multipier
-        self.svars["AtrTPMultipier"]                = 3             # Short ATR TP Multipier
-        self.svars["enableTrailingSL"]              = False         # Enable Trailing SL Type 1
+        self.svars["atrSLMultipier"]                = 1.6           # Short ATR SL Multipier
+        self.svars["atrTPMultipier"]                = 3             # Short ATR TP Multipier
+        # self.svars["enableTrailingSL"]              = False         # Enable Trailing SL Type 1
         self.svars["trailingSLPercent"]             = 0.5           # Trailing SL 1 Percent
-        self.svars["enableTrailingSL2"]             = True          # Enable Trailing SL Type 2: 3 steps
+        # self.svars["enableTrailingSL2"]             = True          # Enable Trailing SL Type 2: 3 steps
         self.svars["trailingSLPercent1"]            = 0.8           # Step 1: Red Zone
         self.svars["trailingSLPercent2"]            = 1             # Step 2: Red Zone
         self.svars["trailingSLPercent3"]            = 1.1           # Step 3: Green Zone
@@ -120,60 +124,9 @@ class TFC(Strategy):
         self.trailTPStep                            = 0
         self.pyramiding                             = 0
 
-        self.st1TrendUp_Tf1                         = 0.0
-        self.st1TrendDown_Tf1                       = 0.0
-        self.st1Trend_Tf1                           = 0.0
-        self.pre_st1TrendUp_Tf1                     = 0.0
-        self.pre_st1TrendDown_Tf1                   = 0.0
-        self.pre_st1Trend_Tf1                       = 0.0
-        # self.pre_close                              = 0
-        self.st1TrendUp_Tf2                         = 0.0
-        self.st1TrendDown_Tf2                       = 0.0
-        self.st1Trend_Tf2                           = 0.0
-        self.pre_st1TrendUp_Tf2                     = 0.0
-        self.pre_st1TrendDown_Tf2                   = 0.0
-        self.pre_st1Trend_Tf2                       = 0.0
-        
-        self.st2TrendUp_Tf1                         = 0.0
-        self.st2TrendDown_Tf1                       = 0.0
-        self.st2Trend_Tf1                           = 0.0
-        self.pre_st2TrendUp_Tf1                     = 0.0
-        self.pre_st2TrendDown_Tf1                   = 0.0
-        self.pre_st2Trend_Tf1                       = 0.0
-        # self.pre_close                              = 0
-        self.st2TrendUp_Tf2                         = 0.0
-        self.st2TrendDown_Tf2                       = 0.0
-        self.st2Trend_Tf2                           = 0.0
-        self.pre_st2TrendUp_Tf2                     = 0.0
-        self.pre_st2TrendDown_Tf2                   = 0.0
-        self.pre_st2Trend_Tf2                       = 0.0
-
-
-        self.stComboTrend                           = 0.0
-        self.stComboTrend_Tf1                       = 0.0
-        self.stComboTrend_Tf2                       = 0.0
-        self.stComboTsl_Tf1                         = 0
-        self.stComboTsl_Tf2                         = 0
-
-        self.dmiTrend                               = 0
-
-        self.pre_LrsiL0                             = 0.0
-        self.LrsiL0                                 = 0.0
-        self.pre_LrsiL1                             = 0.0
-        self.LrsiL1                                 = 0.0
-        self.pre_LrsiL2                             = 0.0
-        self.LrsiL2                                 = 0.0
-        self.pre_LrsiL3                             = 0.0
-        self.LrsiL3                                 = 0.0
-        self.LrsiCU                                 = 0.0
-        self.LrsiCD                                 = 0.0
-        self.pre_LrsiSignal                         = 0
-        self.LrsiSignal                             = 0
-
-
-
-
-
+        self.onlyLong                               = False
+        self.onlyShort                              = False
+        self.LS                                     = True
 
 
     def hyperparameters(self):
@@ -197,7 +150,7 @@ class TFC(Strategy):
             {'name': 'longDmiLength', 'title': 'Long DMI Length', 'type': int, 'min': 5, 'max': 20, 'default': 20},
             {'name': 'longLrsiAlpha', 'title': 'Long LRSI Alpha', 'type': float, 'min': 0.4, 'max': 0.9, 'default': 0.7},
             {'name': 'longLrsiFeLength', 'title': 'Long LRSI Fractals Energy Length', 'type': int, 'min': 5, 'max': 20, 'default': 13},
-            {'name': 'longThreshold', 'title': 'Long Indicator Threshold', 'type': int, 'min': 1, 'max': 6, 'default': 3 }, 
+            {'name': 'longThreshold', 'title': 'Long Indicator Threshold', 'type': int, 'min': 3, 'max': 5, 'default': 3 }, 
 
             {'name': 'shortAtrSLMultipier', 'title': 'Short ATR SL Multipier', 'type': float, 'min': 1.0, 'max': 3.0, 'default': 1.6},
             {'name': 'shortAtrTPMultipier', 'title': 'Short ATR TP Multipier', 'type': float, 'min': 2.0, 'max': 6.0, 'default': 3.0},
@@ -217,7 +170,7 @@ class TFC(Strategy):
             {'name': 'shortDmiLength', 'title': 'Short DMI Length', 'type': int, 'min': 5, 'max': 20, 'default': 20},
             {'name': 'shortLrsiAlpha', 'title': 'Short LRSI Alpha', 'type': float, 'min': 0.4, 'max': 0.9, 'default': 0.7},
             {'name': 'shortLrsiFeLength', 'title': 'Short LRSI Fractals Energy Length', 'type': int, 'min': 5, 'max': 20, 'default': 13},
-            {'name': 'shortThreshold', 'title': 'Short Indicator Threshold', 'type': int, 'min': 1, 'max': 6, 'default': 3 }, 
+            {'name': 'shortThreshold', 'title': 'Short Indicator Threshold', 'type': int, 'min': 3, 'max': 5, 'default': 3 }, 
 
         ]
 
@@ -310,8 +263,8 @@ class TFC(Strategy):
     def before(self):
 
         # # Long
-        # self.lvars["AtrSLMultipier"]                = self.hp["longAtrSLMultipier"]
-        # self.lvars["AtrTPMultipier"]                = self.hp["longAtrTPMultipier"]
+        # self.lvars["atrSLMultipier"]                = self.hp["longAtrSLMultipier"]
+        # self.lvars["atrTPMultipier"]                = self.hp["longAtrTPMultipier"]
         # self.lvars["trailingSLPercent"]             = self.hp["longTrailingSLPercent"]
         # self.lvars["trailingSLPercent1"]            = self.hp["longTrailingSLPercent1"]
         # self.lvars["trailingSLPercent2"]            = self.hp["longTrailingSLPercent2"]
@@ -331,8 +284,8 @@ class TFC(Strategy):
         # self.lvars["threshold"]                     = self.hp["longThreshold"]
 
         # # Short
-        # self.svars["AtrSLMultipier"]                = self.hp["shortAtrSLMultipier"]
-        # self.svars["AtrTPMultipier"]                = self.hp["shortAtrTPMultipier"]
+        # self.svars["atrSLMultipier"]                = self.hp["shortAtrSLMultipier"]
+        # self.svars["atrTPMultipier"]                = self.hp["shortAtrTPMultipier"]
         # self.svars["trailingSLPercent"]             = self.hp["shortTrailingSLPercent"]
         # self.svars["trailingSLPercent1"]            = self.hp["shortTrailingSLPercent1"]
         # self.svars["trailingSLPercent2"]            = self.hp["shortTrailingSLPercent2"]
@@ -386,21 +339,6 @@ class TFC(Strategy):
         temp = self.f_atr(tr,self.atrLength)
         return temp
     
-    # Define SuperTrend Functions
-    @property
-    @cached
-    def stUp(self, stFactor, stPeriod):
-        hl2 = (self.high + self.low)/2
-        temp = hl2 - (stFactor * ta.atr(self.candles, period=stPeriod))
-        return temp
-    
-    @property
-    @cached
-    def stDn(self, stFactor, stPeriod):
-        hl2 = (self.high + self.low)/2
-        temp = hl2 + (stFactor * ta.atr(self.candles, period=stPeriod))
-        return temp
-    
     # Define EMA Cross and Determine Status
     @property
     def ma1(self, emaFast):
@@ -416,422 +354,461 @@ class TFC(Strategy):
         else:
             return 1
 
-    #Determine SuperTrend 1 Values on First Timeframe 
-    def st1_first(self, st1Factor, st1Period):
-        candles = slice_candles(self.candles, sequential=True)
-        pre_close = candles[-2:,2][0]
-        # self.st1TrendUp_Tf1 = 0.0
-        # St1TrendUp_Tf1 := close[1] > St1TrendUp_Tf1[1] ? max(StUp(St1Factor, St1Period), St1TrendUp_Tf1[1]) : StUp(St1Factor, St1Period)
-        if pre_close > self.pre_st1TrendUp_Tf1:
-            self.st1TrendUp_Tf1 = max(self.stUp(st1Factor, st1Period), self.pre_st1TrendUp_Tf1)
-        else:
-            self.st1TrendUp_Tf1 = self.stUp(st1Factor, st1Period)
+    # // Determine Strength of Trend Based on Status of All Indicators
+    # MaTrendCalc = StComboTrend == MaTrend ? StComboTrend : 0
+    # AroonIndictorTrendCalc = StComboTrend == AroonIndictorTrend ? StComboTrend : 0
+    # AroonOscillatorSignalCalc = StComboTrend == AroonOscillatorSignal ? StComboTrend : 0
+    # DmiTrendCalc = StComboTrend == DmiTrend ? StComboTrend : 0
+    # LrsiSignalCalc = StComboTrend == LrsiSignal ? StComboTrend : 0
+    # TrendStrength = MaTrendCalc + AroonIndictorTrendCalc + AroonOscillatorSignalCalc + DmiTrendCalc + LrsiSignalCalc
 
-        # self.st1TrendDown_Tf1 = 0.0
-        # St1TrendDown_Tf1 := close[1] < St1TrendDown_Tf1[1] ? min(StDn(St1Factor, St1Period), St1TrendDown_Tf1[1]) : StDn(St1Factor, St1Period)
-        if pre_close < self.pre_st1TrendDown_Tf1:
-            self.st1TrendDown_Tf1 = min(self.stUp(st1Factor, st1Period), self.pre_st1TrendDown_Tf1)
-        else:
-            self.st1TrendDown_Tf1 = self.stDn(st1Factor, st1Period)
-        
-        # self.st1Trend_Tf1 = 0.0
-        # St1Trend_Tf1 := close > St1TrendDown_Tf1[1] ? 1 : close < St1TrendUp_Tf1[1] ? -1 : nz(St1Trend_Tf1[1],1)
-        if self.close > self.pre_st1TrendDown_Tf1:
-            self.st1Trend_Tf1 = 1
-        elif self.close < self.pre_st1TrendUp_Tf1:
-            self.st1Trend_Tf1 = -1
-        else:
-            self.st1Trend_Tf1 = lib.nz(self.pre_st1Trend_Tf1, 1)
-        
-        self.pre_st1TrendUp_Tf1 = self.st1TrendUp_Tf1
-        self.pre_st1TrendDown_Tf1 = self.st1TrendDown_Tf1
-        self.pre_st1Trend_Tf1 = self.st1Trend_Tf1
-        # self.pre_close = self.close
+    # // Plot Entry Arrows
+    # EntryDirection = 0
+    # EntryDirection := StComboTrend == 1 and TrendStrength >= Threshold and TrendStrength[1] < Threshold ? 1 : StComboTrend == -1 and TrendStrength <= -Threshold and TrendStrength[1] > -Threshold ? -1 : EntryDirection[1]
     
-    # Determine SuperTrend 1 Values on Second Timeframe
-    def st1_second(self, st1Factor, st1Period):
-        candles = slice_candles(self.candles, sequential=True)
-        pre_close = candles[-2:,2][0]
-        # St1TrendUp_Tf2 = 0.0
-        # St1TrendUp_Tf2 := close[1] > St1TrendUp_Tf2[1] ? max(security(syminfo.tickerid, ConfirmationResolution, StUp(St1Factor, St1Period)), St1TrendUp_Tf2[1]) : security(syminfo.tickerid, ConfirmationResolution, StUp(St1Factor, St1Period))
-        if pre_close > self.pre_st1TrendUp_Tf2:
-            if self.vars["getConfirmation"]:
-                self.st1TrendUp_Tf2 = max(self.stUp(st1Factor, st1Period), self.pre_st1TrendUp_Tf2)
-        else:
-            if self.vars["getConfirmation"]:
-                self.st1TrendUp_Tf2 = self.stUp(st1Factor, st1Period)   
-        
-        # St1TrendDown_Tf2 = 0.0
-        # St1TrendDown_Tf2 := close[1] < St1TrendDown_Tf2[1] ? min(security(syminfo.tickerid, ConfirmationResolution, StDn(St1Factor, St1Period)), St1TrendDown_Tf2[1]) : security(syminfo.tickerid, ConfirmationResolution, StDn(St1Factor, St1Period))
-        if pre_close < self.pre_st1TrendDown_Tf2:
-            if self.vars["getConfirmation"]:
-                self.st1TrendUp_Tf2 = max(self.stDn(st1Factor, st1Period), self.pre_st1TrendDown_Tf2)
-        else:
-            if self.vars["getConfirmation"]:
-                self.st1TrendDown_Tf2 = self.stDn(st1Factor, st1Period)  
-        # St1Trend_Tf2 = 0.0
-        # St1Trend_Tf2 := close > St1TrendDown_Tf2[1] ? 1 : close < St1TrendUp_Tf2[1] ? -1 : nz(St1Trend_Tf2[1],1)
-        if self.close > self.pre_st1TrendDown_Tf2:
-            self.st1Trend_Tf2 = 1
-        elif self.close < self.pre_st1TrendUp_Tf2:
-            self.st1Trend_Tf2 = -1
-        else:
-            self.st1Trend_Tf2 = lib.nz(self.pre_st1Trend_Tf2, 1)
+   
 
-        self.pre_st1TrendUp_Tf2 = self.st1TrendUp_Tf2
-        self.pre_st1TrendDown_Tf2 = self.st1TrendDown_Tf2
-        self.pre_st1Trend_Tf2 = self.st1Trend_Tf2
-        # self.pre_close = self.close
+    # longCondition := barstate.isconfirmed and enableLong and inDateRange and StComboTrend == 1 and TrendStrength >= Threshold and TrendStrength[1] < Threshold
+    # shortCondition := barstate.isconfirmed and enableShort and inDateRange and StComboTrend == -1 and TrendStrength <= -Threshold and TrendStrength[1] > -Threshold
+
     
-
-    # Determine SuperTrend 2 Values on First Timeframe
-    def st2_first(self, st2Factor, st2Period):
-        candles = slice_candles(self.candles, sequential=True)
-        pre_close = candles[-2:,2][0]
-        # St2TrendUp_Tf1 = 0.0
-        # St2TrendUp_Tf1 := close[1] > St2TrendUp_Tf1[1] ? max(StUp(St2Factor, St2Period), St2TrendUp_Tf1[1]) : StUp(St2Factor, St2Period)
-        if pre_close > self.pre_st2TrendUp_Tf1:
-            self.st2TrendUp_Tf1 = max(self.stUp(st2Factor, st2Period), self.pre_st2TrendUp_Tf1)
-        else:
-            self.st2TrendUp_Tf1 = self.stUp(st2Factor, st2Period)
-
-        # St2TrendDown_Tf1 = 0.0
-        # St2TrendDown_Tf1 := close[1] < St2TrendDown_Tf1[1] ? min(StDn(St2Factor, St2Period), St2TrendDown_Tf1[1]) : StDn(St2Factor, St2Period)
-        if pre_close < self.pre_st2TrendDown_Tf1:
-            self.st2TrendDown_Tf1 = min(self.stUp(st2Factor, st2Period), self.pre_st2TrendDown_Tf1)
-        else:
-            self.st2TrendDown_Tf1 = self.stDn(st2Factor, st2Period)
+    @property
+    def signal(self):
+        signal = None
+        # // Calculates WaveTrend
+        cmt = ''
         
-        # St2Trend_Tf1 = 0.0
-        # St2Trend_Tf1 := close > St2TrendDown_Tf1[1] ? 1 : close < St2TrendUp_Tf1[1] ? -1 : nz(St2Trend_Tf1[1],1)
-        if self.close > self.pre_st2TrendDown_Tf1:
-            self.st2Trend_Tf1 = 1
-        elif self.close < self.pre_st2TrendUp_Tf1:
-            self.st2Trend_Tf1 = -1
-        else:
-            self.st2Trend_Tf1 = lib.nz(self.pre_st2Trend_Tf1, 1)
-        
-        self.pre_st2TrendUp_Tf1 = self.st2TrendUp_Tf1
-        self.pre_st2TrendDown_Tf1 = self.st2TrendDown_Tf1
-        self.pre_st2Trend_Tf1 = self.st2Trend_Tf1
-        # self.pre_close = self.close
-
-    # Determine SuperTrend 2 Values on Second Timeframe
-    def st2_second(self, st2Factor, st2Period):
-        candles = slice_candles(self.candles, sequential=True)
-        pre_close = candles[-2:,2][0]
-        # St2TrendUp_Tf2 = 0.0
-        # St2TrendUp_Tf2 := close[1] > St2TrendUp_Tf2[1] ? max(security(syminfo.tickerid, ConfirmationResolution, StUp(St2Factor, St2Period)), St2TrendUp_Tf2[1]) : security(syminfo.tickerid, ConfirmationResolution, StUp(St2Factor, St2Period))
-        if pre_close > self.pre_st2TrendUp_Tf2:
-            if self.vars["getConfirmation"]:
-                self.st2TrendUp_Tf2 = max(self.stUp(st2Factor, st2Period), self.pre_st2TrendUp_Tf2)
-        else:
-            if self.vars["getConfirmation"]:
-                self.st2TrendUp_Tf2 = self.stUp(st2Factor, st2Period)   
-        
-        # St2TrendDown_Tf2 = 0.0
-        # St2TrendDown_Tf2 := close[1] < St2TrendDown_Tf2[1] ? min(security(syminfo.tickerid, ConfirmationResolution, StDn(St2Factor, St2Period)), St2TrendDown_Tf2[1]) : security(syminfo.tickerid, ConfirmationResolution, StDn(St2Factor, St2Period))
-        if pre_close < self.pre_st2TrendDown_Tf2:
-            if self.vars["getConfirmation"]:
-                self.st2TrendUp_Tf2 = max(self.stDn(st2Factor, st2Period), self.pre_st2TrendDown_Tf2)
-        else:
-            if self.vars["getConfirmation"]:
-                self.st2TrendDown_Tf2 = self.stDn(st2Factor, st2Period)  
-        
-        # St2Trend_Tf2 = 0.0
-        # St2Trend_Tf2 := close > St2TrendDown_Tf2[1] ? 1 : close < St2TrendUp_Tf2[1] ? -1 : nz(St2Trend_Tf2[1],1)
-        if self.close > self.pre_st2TrendDown_Tf2:
-            self.st2Trend_Tf2 = 1
-        elif self.close < self.pre_st2TrendUp_Tf2:
-            self.st2Trend_Tf2 = -1
-        else:
-            self.st2Trend_Tf2 = lib.nz(self.pre_st2Trend_Tf2, 1)
-
-        self.pre_st2TrendUp_Tf2 = self.st2TrendUp_Tf2
-        self.pre_st2TrendDown_Tf2 = self.st2TrendDown_Tf2
-        self.pre_st2Trend_Tf2 = self.st2Trend_Tf2
-        # self.pre_close = self.close
-    
-    # Combine the SuperTrends on the first timeframe into one, determine values, and plot
-    def stComboTrend_first(self):
-        # StComboTrend_Tf1 = 0.0
-        # StComboTrend_Tf1 := St1Trend_Tf1 == St2Trend_Tf1 ? St1Trend_Tf1 : na
-        if self.st1Trend_Tf1 == self.st2Trend_Tf1:
-            self.stComboTrend_Tf1 = self.st1Trend_Tf1
-        else:
-            self.stComboTrend_Tf1 = nan
-
-        # StComboTrendUp_Tf1 = St1TrendUp_Tf1 < St2TrendUp_Tf1 ? St1TrendUp_Tf1 : St2TrendUp_Tf1
-        if self.st1TrendUp_Tf1 < self.st2TrendUp_Tf1:
-            self.stComboTrendUp_Tf1 = self.st1TrendUp_Tf1
-        else:
-            self.stComboTrendUp_Tf1 = self.st2TrendUp_Tf1
-
-        # StComboTrendDown_Tf1 = St1TrendDown_Tf1 > St2TrendDown_Tf1 ? St1TrendDown_Tf1 : St2TrendDown_Tf1
-        if self.st1TrendDown_Tf1 < self.st2TrendDown_Tf1:
-            self.stComboTrendDown_Tf1 = self.st1TrendDown_Tf1
-        else:
-            self.stComboTrendDown_Tf1 = self.st2TrendDown_Tf1
-
-        # StComboTsl_Tf1 = StComboTrend_Tf1 == 1 ? StComboTrendUp_Tf1 : StComboTrend_Tf1 == -1 ? StComboTrendDown_Tf1 : na
-        if self.stComboTrend_Tf1 == 1:
-            self.stComboTsl_Tf1 = self.stComboTrendUp_Tf1
-        else:
-            if self.stComboTrend_Tf1 == -1:
-                self.stComboTsl_Tf1 = self.stComboTrendDown_Tf1
-            else:
-                self.stComboTsl_Tf1 = nan
-
-        # StComboLinecolor_Tf1 = StComboTrend_Tf1 == 1 ? #00ff00 : #ff0000
-        # plot(StComboTsl_Tf1, color = StComboLinecolor_Tf1, style = plot.style_linebr, linewidth = 2, title = "SuperTrend Combo (Chart Timeframe)")
-  
-    # Combine the SuperTrends on the second timeframe into one and determine values
-    def stComboTrend_second(self):
-        # StComboTrend_Tf2 = 0.0
-        # StComboTrend_Tf2 := St1Trend_Tf2 == St2Trend_Tf2 ? St1Trend_Tf2 : na
-        if self.st1Trend_Tf2 == self.st2Trend_Tf2:
-            self.stComboTrend_Tf2 = self.st1Trend_Tf2
-        else:
-            self.stComboTrend_Tf2 = nan
-
-        # StComboTrendUp_Tf2 = St1TrendUp_Tf2 < St2TrendUp_Tf2 ? St1TrendUp_Tf2 : St2TrendUp_Tf2
-        if self.st1TrendUp_Tf2 < self.st2TrendUp_Tf2:
-            self.stComboTrendUp_Tf2 = self.st1TrendUp_Tf2
-        else:
-            self.stComboTrendUp_Tf2 = self.st2TrendUp_Tf2
-
-        # StComboTrendDown_Tf2 = St1TrendDown_Tf2 > St2TrendDown_Tf2 ? St1TrendDown_Tf2 : St2TrendDown_Tf2
-        if self.st1TrendDown_Tf2 < self.st2TrendDown_Tf2:
-            self.stComboTrendDown_Tf2 = self.st1TrendDown_Tf2
-        else:
-            self.stComboTrendDown_Tf2 = self.st2TrendDown_Tf2
-
-        # StComboTsl_Tf2 = StComboTrend_Tf2 == 1 ? StComboTrendUp_Tf2 : StComboTrend_Tf2 == -1 ? StComboTrendDown_Tf2 : na
-        if self.stComboTrend_Tf2 == 1:
-            self.stComboTsl_Tf2 = self.stComboTrendUp_Tf2
-        else:
-            if self.stComboTrend_Tf2 == -1:
-                self.stComboTsl_Tf2 = self.stComboTrendDown_Tf2
-            else:
-                self.stComboTsl_Tf2 = nan
-
-    # Determine Overall SuperTrend Direction
-    def stDirection(self):
-        # StComboTrend = 0.0
-        # StComboTrend := GetConfirmation == true ? StComboTrend_Tf1 == StComboTrend_Tf2 ? StComboTrend_Tf1 : na : StComboTrend_Tf1
-        if self.vars["getComfirmation"] == True:
-            if self.stComboTrend_Tf1 == self.stComboTrend_Tf2:
-                self.stComboTrend = self.stComboTrend_Tf1
-            else:
-                self.stComboTrend = nan
-        else:
-            self.stComboTrend = self.stComboTrend_Tf1
-
-    # Define Aroon Indicator and Determine Status
-    # AroonIndicatorUpper = 100 * (highestbars(high, AroonLength + 1) + AroonLength) / AroonLength
-    # AroonIndicatorLower = 100 * (lowestbars(low, AroonLength + 1) + AroonLength) / AroonLength
-    # AroonIndictorTrend = 0
-    # AroonIndictorTrend := crossover(AroonIndicatorUpper, AroonIndicatorLower) ? 1 : crossover(AroonIndicatorLower, AroonIndicatorUpper) ? -1 : AroonIndictorTrend[1]
-
-    # Define Aroon Oscillator and Determine Status
-    # AroonOscillatorMidpoint = 0
-    # AroonOscillator = AroonIndicatorUpper - AroonIndicatorLower
-    # AroonOscillatorSignal = 0
-    # AroonOscillatorSignal := crossover(AroonOscillator, -80) ? 1 : crossunder(AroonOscillator, 80) ? -1 : AroonOscillatorSignal[1]
-
-    # Define Directional Movement Index and Determine Values
-    def dmi(self, dmiLength):
-        # Function Change: Difference between current value and previous, x - x[y].
-        # length (series[integer]) Offset from the current bar to the previous bar. Optional, if not given, length = 1 is used. Can be series[integer].
-        
-        candles = slice_candles(self.candles, sequential=True)
-        pre_high = candles[-2:,3][0]
-        pre_low = candles[-2:,4][0]
-
-        # DmiUp = change(high)
-        DmiUp = self.high - pre_high
-
-        # DmiDown = -change(low)
-        DmiDown = - (self.low - pre_low)
-
-        # DmiPlusDm = na(DmiUp) ? na : (DmiUp > DmiDown and DmiUp > 0 ? DmiUp : 0)
-        if math.isnan(DmiUp):
-            DmiPlusDm = nan
-        else:
-            if DmiUp > DmiDown and DmiUp > 0:
-                DmiPlusDm = DmiUp
-            else:
-                DmiPlusDm = 0
-
-        # DmiMinusDm = na(DmiDown) ? na : (DmiDown > DmiUp and DmiDown > 0 ? DmiDown : 0)
-        if math.isnan(DmiDown):
-            DmiMinusDm = nan
-        else:
-            if DmiDown > DmiUp and DmiDown > 0:
-                DmiMinusDm = DmiDown
-            else:
-                DmiMinusDm = 0
-
-        # DmiTrur = rma(tr, DmiLength)
-        tr = ta.trange(self.candles, sequential=True)
-        DmiTrur = ta.rma(tr, length=dmiLength)
-
-        # Function fixnan(): For a given series replaces NaN values with previous nearest non-NaN value.
-        # DmiPlus = fixnan(100 * rma(DmiPlusDm, DmiLength) / DmiTrur)
-
-        # DmiMinus = fixnan(100 * rma(DmiMinusDm, DmiLength) / DmiTrur)
-
-        # DmiTrend = 0
-        # DmiTrend := crossover(DmiPlus, DmiMinus) ? 1 : crossover(DmiMinus, DmiPlus) ? -1 : DmiTrend[1]
-        
-
-    # Define Laguerre RSI and Determine Values
-    def lrsi(self, LrsiFeLength, LrsiAlpha):
-        candles = slice_candles(self.candles, sequential=True)
-        pre_close = candles[-2:,2][0]
-
-        # LrsiOC = (open + nz(close[1])) / 2
-        LrsiOC = (self.open + lib.nz(pre_close)) / 2
-
-        # LrsiHC = max(high, nz(close[1]))
-        LrsiHC = max(self.high, lib.nz(pre_close))
-
-        # LrsiLC = min(low, nz(close[1]))
-        LrsiLC = min(self.low, lib.nz(pre_close))
-
-        # LrsiFeSrc = (LrsiOC + LrsiHC + LrsiLC + close) / 4
-        LrsiFeSrc = (LrsiOC + LrsiHC + LrsiLC + self.close) / 4
-
-        # LrsiFeAlpha = log(sum((LrsiHC - LrsiLC) / (highest(LrsiFeLength) - lowest(LrsiFeLength)), LrsiFeLength)) / log(LrsiFeLength)
-        LrsiFeAlpha = math.log(sum((LrsiHC - LrsiLC) / (max(LrsiFeLength) - min(LrsiFeLength)), LrsiFeLength)) / math.log(LrsiFeLength)
-
-        # LrsiAlphaCalc = LrsiApplyFractalsEnergy ? LrsiFeAlpha : LrsiAlpha
-        if self.vars["lrsiApplyFractalsEnergy"]:
-            LrsiAlphaCalc = LrsiFeAlpha
-        else:
-            LrsiAlphaCalc = LrsiAlpha
        
-        # LrsiL0 = 0.0
-        # LrsiL0 := LrsiAlphaCalc * (LrsiApplyFractalsEnergy ? LrsiFeSrc : close) + (1 - LrsiAlphaCalc) * nz(LrsiL0[1])
-        if self.vars["lrsiApplyFractalsEnergy"]:
-            temp = LrsiFeSrc
-        else:
-            temp = self.close
-        self.LrsiL0 = LrsiAlphaCalc * temp + (1 - LrsiAlphaCalc) * lib.nz(self.pre_LrsiL0)
-        self.pre_LrsiL0 = self.LrsiL0
-
-        # LrsiL1 = 0.0
-        # LrsiL1 := -(1 - LrsiAlphaCalc) * LrsiL0 + nz(LrsiL0[1]) + (1 - LrsiAlphaCalc) * nz(LrsiL1[1])
-        self.LrsiL1 = -(1 - LrsiAlphaCalc) * self.LrsiL0 + lib.nz(self.pre_LrsiL0) + (1 - LrsiAlphaCalc) * lib.nz(self.pre_LrsiL1)
-        self.pre_LrsiL1 = self.LrsiL1
-
-        # LrsiL2 = 0.0
-        # LrsiL2 := -(1 - LrsiAlphaCalc) * LrsiL1 + nz(LrsiL1[1]) + (1 - LrsiAlphaCalc) * nz(LrsiL2[1])
-        self.LrsiL2 = -(1 - LrsiAlphaCalc) * self.LrsiL1 + lib.nz(self.pre_LrsiL1) + (1 - LrsiAlphaCalc) * lib.nz(self.pre_LrsiL2)
-        self.pre_LrsiL2 = self.LrsiL2
-
-        # LrsiL3 = 0.0
-        # LrsiL3 := -(1 - LrsiAlphaCalc) * LrsiL2 + nz(LrsiL2[1]) + (1 - LrsiAlphaCalc) * nz(LrsiL3[1])
-        self.LrsiL3 = -(1 - LrsiAlphaCalc) * self.LrsiL2 + lib.nz(self.pre_LrsiL2) + ( 1 - LrsiAlphaCalc) * lib.nz(self.pre_LrsiL3)
-        self.pre_LrsiL3 = self.LrsiL3
         
-        # LrsiCU = 0.0
-        # LrsiCU := (LrsiL0 >= LrsiL1 ? LrsiL0 - LrsiL1 : 0) + (LrsiL1 >= LrsiL2 ? LrsiL1 - LrsiL2 : 0) + (LrsiL2 >= LrsiL3 ? LrsiL2 - LrsiL3 : 0)
-        if self.LrsiL0 >= self.LrsiL1:
-            temp1 = self.LrsiL0 - self.LrsiL1
-        else:
-            temp1 = 0
-        if self.LrsiL1 >= self.LrsiL2:
-            temp2 = self.LrsiL1 - self.LrsiL2
-        else:
-            temp2 = 0
-        if self.LrsiL2 >= self.LrsiL3:
-            temp3 = self.LrsiL2 - self.LrsiL3
-        else:
-            temp3 = 0
-        self.LrsiCU = temp1 + temp2 + temp3
-
-        # LrsiCD = 0.0
-        # LrsiCD := (LrsiL0 >= LrsiL1 ? 0 : LrsiL1 - LrsiL0) + (LrsiL1 >= LrsiL2 ? 0 : LrsiL2 - LrsiL1) + (LrsiL2 >= LrsiL3 ? 0 : LrsiL3 - LrsiL2)
-        if self.LrsiL0 >= self.LrsiL1:
-            temp1 = 0
-        else:
-            temp1 = self.LrsiL1 - self.LrsiL0
-        if self.LrsiL1 >= self.LrsiL2:
-            temp2 = 0
-        else:
-            temp2 = self.LrsiL2 - self.LrsiL1
-        if self.LrsiL2 >= self.LrsiL3:
-            temp3 = 0
-        else:
-            temp3 = self.LrsiL3 - self.LrsiL2
-        self.LrsiCD = temp1 + temp2 + temp3
-        
-        # Lrsi = LrsiCU + LrsiCD != 0
-        #         ? LrsiApplyNormalization ? 100 * LrsiCU / (LrsiCU + LrsiCD) : LrsiCU / (LrsiCU + LrsiCD)
-        #         : 0
-        if self.LrsiCU + self.LrsiCD != 0:
-            if self.vars["lrsiApplyFractalsEnergy"]:
-                Lrsi = 100 * self.LrsiCU / (self. LrsiCU + self.LrsiCD)
-            else:
-                Lrsi = self.LrsiCU / (self. LrsiCU + self.LrsiCD)
-        else:
-            Lrsi = 0
-            
-        
-        # LrsiMult = (LrsiApplyNormalization ? 100 : 1)
-        if self.vars["lrsiApplyFractalsEnergy"]:
-            LrsiMult = 100
-        else:
-            LrsiMult = 1
-        
-        # LrsiOverBought = 0.8 * LrsiMult
-        LrsiOverBought = 0.8 * LrsiMult
-
-        # LrsiOverSold = 0.2 * LrsiMult
-        LrsiOverSold = 0.2 * LrsiMult
-
-        # LrsiSignal = 0
-        # LrsiSignal := crossover(Lrsi, LrsiOverSold) ? 1 : crossunder(Lrsi, LrsiOverBought) ? -1 : LrsiSignal[1]
-        if utils.crossed(Lrsi, LrsiOverSold, "above"):
-            self.LrsiSignal = 1
-        elif  utils.crossed(Lrsi, LrsiOverBought, "below"):
-            self.LrsiSignal = -1
-        else:
-            self.LrsiSignal = self.pre_LrsiSignal
 
 
-        
-    # Determine Strength of Trend Based on Status of All Indicators
-    # def trendStrength(self):
-        # MaTrendCalc = StComboTrend == MaTrend ? StComboTrend : 0
-
-        # AroonIndictorTrendCalc = StComboTrend == AroonIndictorTrend ? StComboTrend : 0
-
-        # AroonOscillatorSignalCalc = StComboTrend == AroonOscillatorSignal ? StComboTrend : 0
-
-        # DmiTrendCalc = StComboTrend == DmiTrend ? StComboTrend : 0
-
-        # LrsiSignalCalc = StComboTrend == LrsiSignal ? StComboTrend : 0
-
-        # TrendStrength = MaTrendCalc + AroonIndictorTrendCalc + AroonOscillatorSignalCalc + DmiTrendCalc + LrsiSignalCalc
- 
-
+        return signal
 
     def should_long(self) -> bool:
-        return False
+        if self.onlyLong or self.LS:
+            qty = max(min(round(self.risk_qty_long(), self.qty_precision), (self.available_margin - 1)/ self.price), 0)
+            if qty != 0 and self.vars["enableLong"] and self.signal == "buySignal":
+                return True
+        else:
+            return False
 
     def should_short(self) -> bool:
-        return False
+        if self.onlyShort or self.LS:
+            qty = max(min(round(self.risk_qty_short(), self.qty_precision), (self.available_margin - 1)/ self.price), 0)
+            if qty != 0 and self.vars["enableShort"] and self.signal == "sellSignal":
+                return True
+        else:
+            return False
 
     def should_cancel(self) -> bool:
         return True
 
     def go_long(self):
-        pass
+        qty = max(min(round(self.risk_qty_long(), self.qty_precision), (self.available_margin - 1)/ self.price), 0)
+
+        if qty == 0:
+            return
+        self.buy = qty, self.price
+        self.pyramiding_levels = 1 # Track the pyramiding level
+    
+        self.entry_atr = self.c_atr
+        self.entry_price = self.price
+        self.initial_entry = self.price
+        self.long_stop  = self.entry_price - self.entry_atr * self.lvars["atrSLMultipier"]
+        self.long_tp2   = self.entry_price + self.entry_atr * self.lvars["atrTPMultipier"]
+        self.long_tp1   = self.entry_price + self.entry_atr * self.lvars["atrTPMultipier"] / 2
+        self.tl_sl_step = 0
+        self.tl_tp_step = 0
+        half_qty = round(qty/2.0, self.qty_precision)
+        
+        self.stop_loss   = qty, self.long_stop
+
+        if self.vars["trailing_stoploss"] == 1:
+            self.take_profit = [
+                (half_qty, self.long_tp1),
+                (qty - half_qty, self.long_tp2)
+            ]
+        elif self.vars["trailing_stoploss"] == 2:
+            self.take_profit = [
+                (half_qty, self.long_tp1),
+                (qty - half_qty, self.long_tp2)
+            ]
+        else:
+            self.take_profit = qty, self.long_tp2
+
+        if self.debug_log >= 1:    
+            cmt = 'L['
+            
+            self.pine_entryts = self.current_candle[0]
+            self.pine_cmt = 'L[' #cmt
+            self.qty = qty
+            self.pine_reduced_ts = 0
+           
+            total_entry = qty * self.price
+            total_loss = qty * self.price - qty * (self.price - self.atr  * self.lvars["atrSLMultipier"])
+            total_profit = abs(qty * self.price - qty * (self.price + self.atr * self.lvars["atrTPMultipier"]))
+            self.data_log.append([self.index, self.ts, self.open, self.close, self.high, self.low, self.current_candle[5], "Long", 
+                self.capital, qty, self.long_stop, self.long_tp1, self.long_tp2])
 
     def go_short(self):
-        pass
+        qty = max(min(round(self.risk_qty_short(), self.qty_precision), (self.available_margin - 1)/ self.price), 0)
+        if qty == 0 :
+            return
+     
+        self.sell = qty, self.price
+
+        self.pyramiding_levels = 1 # Track the pyramiding level
+
+        self.entry_atr = self.c_atr
+        self.entry_price = self.price
+        self.initial_entry = self.price
+        self.short_stop  = self.entry_price + self.entry_atr * self.svars["atrSLMultipier"]
+        self.short_tp2   = self.entry_price - self.entry_atr * self.svars["atrTPMultipier"]
+        self.short_tp1   = self.entry_price - self.entry_atr * self.svars["atrTPMultipier"] / 2
+        self.tl_sl_step = 0
+        self.tl_tp_step = 0
+        half_qty = round(qty/2.0, self.qty_precision)
+
+        self.stop_loss   = qty, self.short_stop
+        if self.vars["trailing_stoploss"] == 1:
+            self.take_profit = [
+                (half_qty, self.short_tp1),
+                (qty - half_qty, self.short_tp2)
+            ]
+        elif self.vars["trailing_stoploss"] == 2:
+            self.take_profit = [
+                (half_qty, self.short_tp1),
+                (qty - half_qty, self.short_tp2)
+            ]
+        else:
+            self.take_profit = qty, self.short_tp2
+
+        if self.debug_log >= 1:   
+            # cmt = 'S['
+            
+            self.pine_entryts = self.current_candle[0]
+            self.pine_cmt = 'S[' #cmt
+            self.qty = qty
+            self.pine_reduced_ts = 0
+            
+            total_entry = qty * self.price
+            total_loss = qty * self.price - qty * (self.price + self.atr * self.svars["atrSLMultipier"])
+            total_profit = abs(qty * self.price - qty * (self.price - self.atr * self.svars["atrTPMultipier"]))
+            self.data_log.append([self.index, self.ts, self.open, self.close, self.high, self.low, self.current_candle[5], "Short Entry", 
+                self.capital, self.position.qty, total_entry, total_loss, total_profit])
+
+    def move_sltp(self, new_stoploss = 0):
+        if self.is_long:
+            if new_stoploss == 0:
+                self.long_stop   = self.price - self.atr * self.lvars["atrSLMultipier"]
+                self.long_tp2    = self.price + self.atr * self.lvars["atrTPMultipier"]
+                self.long_tp1    = self.price + self.atr * self.lvars["atrTPMultipier"] / 2
+            else:
+                self.long_stop  = new_stoploss
+            qty = abs(self.position.qty)
+            if qty == 0 :
+                return
+            # self.broker.cancel_all_orders()
+            self.stop_loss   = qty, self.long_stop
+            cmt = 'Move SLTP'
+            if self.vars["trailing_stoploss"] == 1 or self.vars["trailing_stoploss"] == 2:
+                # Not yet TP
+                half_qty = round(qty/2.0, self.qty_precision)
+                athird_qty = round(qty/3.0, self.qty_precision)
+
+                if self.tl_tp_step == 0:    
+                    self.take_profit = [
+                        (half_qty, self.long_tp1),
+                        (utils.subtract_floats(qty,half_qty), self.long_tp2)
+                        ]
+                else:
+                    # already take TP1
+                    if self.pyramiding_levels == 1 or athird_qty == 0:
+                        self.take_profit = [
+                            (qty, self.long_tp2)
+                            ]
+                    else:
+                        # TP 1/2 
+                        self.take_profit = [
+                            (athird_qty, self.long_tp1),
+                            (utils.subtract_floats(qty,athird_qty), self.long_tp2)
+                            ]
+            else:
+                self.take_profit = abs(self.position.qty), self.long_tp2
+
+            if self.debug_log >= 1:
+                self.data_log.append([self.index, self.ts, self.open, self.close, self.high, self.low, self.current_candle[5], cmt, 
+                    self.capital, self.position.qty, self.long_stop, self.long_tp1, self.long_tp2, self.pyramiding_levels])
+
+        if self.is_short:
+            # self.entry_atr   = self.atr
+            # self.entry_price = self.price
+            if new_stoploss == 0:
+                self.short_stop  = self.price + self.atr * self.svars["atrSLMultipier"]
+                self.short_tp2   = self.price - self.atr * self.svars["atrTPMultipier"]
+                self.short_tp1   = self.price - self.atr * self.svars["atrTPMultipier"] / 2
+            else:
+                self.short_stop  = new_stoploss
+            qty = abs(self.position.qty)
+            if qty == 0 :
+                return
+            # self.broker.cancel_all_orders()
+            self.stop_loss = qty, self.short_stop
+            cmt = 'Move SLTP'
+            if self.vars["trailing_stoploss"] == 1 or self.vars["trailing_stoploss"] == 2:
+                # Not yet TP
+                half_qty = round(qty/2, self.qty_precision)
+                athird_qty = round(qty/3, self.qty_precision)
+
+                if self.tl_tp_step == 0:    
+                    self.take_profit = [
+                        (half_qty, self.short_tp1),
+                        (utils.subtract_floats(qty, half_qty), self.short_tp2)
+                        ]
+                else:
+                    # already take TP1
+                    if self.pyramiding_levels == 1 or athird_qty == 0:
+                        self.take_profit = [
+                            (qty, self.short_tp2)
+                            ]
+                    else:
+                        # TP 1/2 
+                        self.take_profit = [
+                            (athird_qty, self.short_tp1),
+                            (utils.subtract_floats(qty, athird_qty), self.short_tp2)
+                            ]     
+            else:
+                self.take_profit = qty, self.short_tp2
+
+            if self.debug_log >= 1:
+                self.data_log.append([self.index, self.ts, self.open, self.close, self.high, self.low, self.current_candle[5], cmt, 
+                    self.capital, qty, self.short_stop, self.short_tp1, self.short_tp2, self.pyramiding_levels])
+
+        return
+
+
+    def update_position(self):
+        # Call every new candle when in a position
+        # Handle for pyramiding rules
+        if self.is_long and self.should_long():
+            if self.pyramiding_levels < self.vars["maximum_pyramiding_levels"]:
+                #qty = round(self.risk_qty_short(),2) * self.vars["pyramiding_threshold"]
+                qty = max(min(round(self.risk_qty_long()  * self.vars["pyramiding_threshold"], self.qty_precision), (self.available_margin - 1)/ self.price), 0)
+               
+                #utils.size_to_qty(self.unit_qty_long() * self.vars["pyramiding_threshold"], self.price, fee_rate=self.fee_rate)
+                if qty > 0:
+                    self.buy = qty, self.price
+                    self.pyramiding_levels += 1
+                    cmt = 'Long Pyramid'
+                    if self.debug_log >= 1:
+                        self.data_log.append([self.index, self.ts, self.open, self.close, self.high, self.low, self.current_candle[5], cmt, 
+                            self.capital, self.position.qty, self.long_stop, self.long_tp1, self.long_tp2, self.pyramiding_levels])
+
+                    # Should Move after increases
+                    self.entry_atr   = self.c_atr
+                    self.entry_price = self.price
+                    # self.move_sltp() 
+            elif self.vars["move_on_no_entry"]:
+                # Update stop loss and take profit   
+                self.entry_atr   = self.c_atr
+                self.entry_price = self.price
+                self.move_sltp() 
+            return     
+ 
+        if self.is_short and self.should_short():
+            if self.pyramiding_levels < self.vars["maximum_pyramiding_levels"]:
+                #qty = round(self.risk_qty_short(),2) * self.vars["pyramiding_threshold"]
+                qty = max(min(round(self.risk_qty_short() * self.vars["pyramiding_threshold"], self.qty_precision), (self.available_margin - 1)/ self.price), 0)
+                #qty = utils.size_to_qty(self.unit_qty_short() * self.vars["pyramiding_threshold"], self.price, fee_rate=self.fee_rate)
+                if qty == 0 :
+                    return
+                if qty > 0:
+                    self.sell = qty, self.price
+                    self.pyramiding_levels += 1
+                    cmt = 'Short Pyramid'
+                    if self.debug_log >= 1:
+                        self.data_log.append([self.index, self.ts, self.open, self.close, self.high, self.low, self.current_candle[5], cmt, 
+                            self.capital, self.position.qty, self.long_stop, self.long_tp1, self.long_tp2, self.pyramiding_levels])
+                    # Should Move after increases
+                    self.entry_atr   = self.c_atr
+                    self.entry_price = self.price
+                    # self.move_sltp()  
+ 
+            elif self.vars["move_on_no_entry"]:
+                # Update stop loss and take profit
+                self.entry_atr   = self.c_atr
+                self.entry_price = self.price
+                self.move_sltp()
+            return
+        # if not pyramiding, contunue update trailing
+        self.trailing_update()      
+
+    def trailing_update(self):
+        # Trailing
+        new_long_stop = 0
+        new_short_stop = 0
+        if self.is_long and self.vars['trailing_stoploss'] == 2 and self.position.qty > 0:
+            if self.tl_sl_step == 0 and self.long_stop < self.entry_price and \
+              self.price > self.entry_price + self.atr * self.lvars['atrSLMultipier'] * self.lvars['trailingTrigger1']:
+                self.tl_sl_step += 1
+                new_long_stop = self.entry_price - self.atr * self.lvars['atrSLMultipier'] *(1 - self.lvars['trailingSLPercent1'])
+                if self.debug_log >= 1:
+                    self.pine_cmt += f"M1 {new_long_stop:.2f} "
+
+            elif self.tl_sl_step <= 1 and self.long_stop < self.entry_price and self.high >= self.long_tp1:
+                self.tl_sl_step = 2
+                new_long_stop = self.entry_price - self.atr * self.lvars['atrSLMultipier'] *(1 - self.lvars['trailingSLPercent2'])
+                if self.debug_log >= 1:
+                    self.pine_cmt += f"M2 {new_long_stop:.2f} "
+
+            elif self.tl_sl_step == 2 and \
+              self.high > self.entry_price + self.atr * self.lvars['atrTPMultipier'] * self.lvars['trailingTrigger2']:
+                self.tl_sl_step += 1
+                new_long_stop = self.entry_price + self.atr * self.lvars['atrTPMultipier'] *(self.lvars['trailingSLPercent3'] - 1)
+                if self.debug_log >= 1:
+                    self.pine_cmt += f"M3 {new_long_stop:.2f} "
+
+        if self.is_short and self.vars['trailing_stoploss'] == 2 and self.position.qty < 0:
+            if self.tl_sl_step == 0 and self.short_stop > self.entry_price and \
+              self.price < self.entry_price - self.atr * self.svars['atrSLMultipier'] * self.svars['trailingTrigger1']:
+                self.tl_sl_step += 1
+                new_short_stop = self.entry_price + self.atr * self.svars['atrSLMultipier'] *(1 - self.svars['trailingSLPercent1'])
+                if self.debug_log >= 1:
+                    self.pine_cmt += f"M1 {new_short_stop:.2f} "
+
+            elif self.tl_sl_step <= 1 and self.short_stop > self.entry_price and self.low <= self.short_tp1:
+                self.tl_sl_step = 2
+                new_short_stop = self.entry_price + self.atr * self.svars['atrSLMultipier'] *(1 - self.svars['trailingSLPercent2'])
+                if self.debug_log >= 1:
+                    self.pine_cmt += f"M2 {new_short_stop:.2f} "
+            elif self.tl_sl_step == 2 and \
+              self.low < self.entry_price - self.atr * self.svars['atrTPMultipier'] * self.svars['trailingTrigger2']:
+                self.tl_sl_step += 1
+                new_short_stop = self.entry_price - self.atr * self.svars['atrTPMultipier'] *(self.svars['trailingSLPercent3'] - 1)
+                if self.debug_log >= 1:
+                    self.pine_cmt += f"M3 {new_short_stop:.2f} "
+
+        if new_long_stop > 0:
+            qty = abs(self.position.qty)
+            if qty == 0 :
+                return
+            self.long_stop = new_long_stop
+            if new_long_stop > self.price:
+                # print("Move Long SL Liquidate")
+                cmt = "Move SL: Liquidate"
+                self.liquidate()
+            else:
+                # print("Move Long SL Only")
+                # self.cancel_stop_orders(self.orders)
+                # self.stop_loss   = qty, self.long_stop
+                cmt = "Move SL"
+                self.move_sltp(new_long_stop)
+
+            # self.cancel_stop_orders(self.orders)
+            
+            if self.debug_log >= 1:
+                self.data_log.append([self.index, self.ts, self.open, self.close, self.high, self.low, self.current_candle[5], cmt, 
+                    self.capital, qty, self.long_stop, self.long_tp1, self.long_tp2])
+
+        if new_short_stop > 0:
+            qty = abs(self.position.qty)
+            if qty == 0:
+                return
+            self.short_stop = new_short_stop
+            # sl = self.stop_loss
+            # tp = self.take_profit
+            # self.cancel_stop_orders(self.orders)
+            if new_short_stop < self.price:
+                # print("Move Short SL Liquidate")
+                cmt = "Move SL: Liquidate"
+                self.liquidate()
+            else:
+                # print("Move Short SL Only")
+                # self.cancel_stop_orders(self.orders)
+                # self.stop_loss   = qty, self.short_stop
+                cmt = "Move SL"
+                self.move_sltp(new_short_stop)
+                # self.view_orders(self.orders)
+            # self.take_profit = tp
+            if self.debug_log >= 1:
+                self.data_log.append([self.index, self.ts, self.open, self.close, self.high, self.low, self.current_candle[5], cmt, 
+                    self.capital, qty, self.short_stop, self.short_tp1, self.short_tp2])
+    def view_orders(self,orders):
+        for order in orders:
+
+            print(f"Type {order.type} active {order.is_active} price ={order.price}")
+    def on_increased_position(self, order):
+        # Reset stop loss and take profit
+
+        # Must clear all orders before setting pyramiding SL TP
+        if self.pyramiding_levels == 2:
+            self.broker.cancel_all_orders()
+        self.move_sltp()
+
+    
+    def cancel_stop_orders(self,orders):
+        for order in orders:
+            if order.type == "STOP":
+                order.cancel()
+                #self.broker.cancel_order(order)
+ 
+    def on_close_position(self, order):
+        self.last_was_profitable = True
+        # print(f"Close Position {self.price} {self.short_stop} {self.long_stop}")
+
+        if self.debug_log >= 1 and self.short_stop > 0:
+            self.pine_short(self.pine_cmt + "]", self.pine_entryts, self.qty, self.current_candle[0], self.short_stop, self.short_tp2)
+   
+        if self.debug_log >= 1 and self.long_stop > 0:
+            self.pine_long(self.pine_cmt + "]", self.pine_entryts, self.qty, self.current_candle[0], self.long_stop, self.long_tp2)
+
+        price = order.price
+        if self.debug_log >= 1:
+            if (self.short_stop > 0 and price < self.initial_entry) or (self.long_stop and price > self.initial_entry):
+                wl = 'Win'
+            else:
+                wl = 'Lose'
+            if price == self.short_stop or self.price == self.long_stop:
+                cmt = f"Exit: {wl} Hit SL"
+            elif price == self.short_tp1 or self.price == self.long_tp1:
+                cmt = f"Exit: {wl} TP1"
+            elif price == self.short_tp2 or self.price == self.long_tp2:
+                cmt = f"Exit: {wl} TP2"
+            else:
+                cmt = f"Exit: {wl} Moved SL"
+            row = len(self.data_log) + 2
+            self.data_log.append([self.index, self.ts, self.open, self.close, self.high, self.low, self.current_candle[5], cmt, self.capital, self.position.qty ,
+                '','','', wl,f"=I{row}-I{row - 1}"])
+
+        self.short_stop = 0
+        self.short_tp1 = 0
+        self.short_tp2 = 0
+        self.long_stop = 0
+        self.long_tp1 = 0
+        self.long_tp2 = 0
+        self.pyramiding_levels = 0 
+        self.initial_entry = 0  
+    
+    def on_reduced_position(self, order):
+        if self.vars["trailing_stoploss"] == 1 and abs(self.position.qty) > 0:
+            self.stop_loss = (abs(self.position.qty), self.entry_price) 
+        if self.vars["trailing_stoploss"] == 2 and abs(self.position.qty) > 0:
+            self.tl_tp_step += 1
+
+        if self.debug_log >= 1 and self.short_stop > 0:
+            self.pine_reduced_ts = self.current_candle[0]
+            self.pine_reduced_price = self.short_tp1
+   
+        if self.debug_log >= 1 and self.long_stop > 0:
+            self.pine_reduced_ts = self.current_candle[0]
+            self.pine_reduced_price = self.long_tp1
+
+        if self.debug_log >= 1:
+            row = len(self.data_log) + 2
+            self.data_log.append([self.index, self.ts, self.open, self.close, self.high, self.low, self.current_candle[5], "Reduce: WIN TP1", self.capital, self.position.qty,'','','','Win',f"=I{row}-I{row - 1}"])
+    
+    def on_cancel(self):
+        self.pyramiding_levels = 0 
 
         
     def watch_list(self):
