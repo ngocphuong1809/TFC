@@ -128,6 +128,11 @@ class TFC(Strategy):
         self.onlyShort                              = False
         self.LS                                     = True
 
+        self.dmiTrend                               = 0
+        self.pre_dmiTrend                           = 0
+        self.lrsiSignal                             = 0
+        self.pre_lrsiSignal                         = 0
+
 
     def hyperparameters(self):
         return [ 
@@ -371,23 +376,103 @@ class TFC(Strategy):
     # longCondition := barstate.isconfirmed and enableLong and inDateRange and StComboTrend == 1 and TrendStrength >= Threshold and TrendStrength[1] < Threshold
     # shortCondition := barstate.isconfirmed and enableShort and inDateRange and StComboTrend == -1 and TrendStrength <= -Threshold and TrendStrength[1] > -Threshold
 
-    
     @property
-    def signal(self):
-        signal = None
-        # // Calculates WaveTrend
-        cmt = ''
+    def l_st_condition(self):
+        st_condition = False
+
         
+        # SuperTrend 1 Values on First TimeFrame 
+        [st1_trend_tf1, st1_changed_tf1] = ta.supertrend(self.candles, period=self.lvars["st1Period"], factor=self.lvars["st1Factor"])
+        
+        # SuperTrend 2 Values on First TimeFrame 
+        [st2_trend_tf1, st2_changed_tf1] = ta.supertrend(self.candles, period=self.lvars["st2Period"], factor=self.lvars["st2Factor"])
+        
+
+        # Define Directional Movement Index and Determine Values
+        [dmiPlus, dmiMinus] = ta.dm(self.candles, period=self.lvars["dmiLength"])
+
+        if utils.crossed(dmiPlus, dmiMinus, 'above'):
+            self.dmiTrend = 1
+        elif utils.crossed(dmiPlus, dmiMinus, 'under'):
+            self.dmiTrend = -1
+        else:
+            self.dmiTrend = self.pre_dmiTrend
+        self.pre_dmiTrend = self.dmiTrend
+
+        # Define Laguerre RSI and Determine Values
+        lrsi = ta.lrsi(self.candles, alpha=self.lvars["lrsiAlpha"])
+        if self.vars["lrsiApplyNormalization"]:
+            lrsiMult = 100
+        else:
+            lrsiMult = 1
+        lrsiOverBought = 0.8 * lrsiMult
+        lrsiOverSold = 0.2 * lrsiMult
+        
+        if utils(lrsi, lrsiOverSold, 'above'):
+            self.lrsiSignal = 1
+        elif utils(lrsi, lrsiOverBought, 'under'):
+            self.lrsiSignal = -1
+        else:
+            self.lrsiSignal = self.pre_lrsiSignal
+        self.pre_lrsiSignal = self.lrsiSignal
+
+
+
+
+
+
+        return st_condition
+
+    @property
+    def s_st_condition(self):
+        st_condition = False
+
+        # SuperTrend 1 Values on First TimeFrame 
+        [st1_trend_tf1, st1_changed_tf1] = ta.supertrend(self.candles, period=self.svars["st1Period"], factor=self.svars["st1Factor"])
+        
+        # SuperTrend 2 Values on First TimeFrame 
+        [st2_trend_tf1, st2_changed_tf1] = ta.supertrend(self.candles, period=self.svars["st2Period"], factor=self.svars["st2Factor"])
+        
+
+        # Define Directional Movement Index and Determine Values
+        [dmiPlus, dmiMinus] = ta.dm(self.candles, period=self.svars["dmiLength"])
+
+        if utils.crossed(dmiPlus, dmiMinus, 'above'):
+            self.dmiTrend = 1
+        elif utils.crossed(dmiPlus, dmiMinus, 'under'):
+            self.dmiTrend = -1
+        else:
+            self.dmiTrend = self.pre_dmiTrend
+        self.pre_dmiTrend = self.dmiTrend
+
+        # Define Laguerre RSI and Determine Values
+        lrsi = ta.lrsi(self.candles, alpha=self.svars["lrsiAlpha"])
+        if self.vars["lrsiApplyNormalization"]:
+            lrsiMult = 100
+        else:
+            lrsiMult = 1
+        lrsiOverBought = 0.8 * lrsiMult
+        lrsiOverSold = 0.2 * lrsiMult
        
+        if utils(lrsi, lrsiOverSold, 'above'):
+            self.lrsiSignal = 1
+        elif utils(lrsi, lrsiOverBought, 'under'):
+            self.lrsiSignal = -1
+        else:
+            self.lrsiSignal = self.pre_lrsiSignal
+        self.pre_lrsiSignal = self.lrsiSignal
+
+
         
 
+        return st_condition
 
-        return signal
+
 
     def should_long(self) -> bool:
         if self.onlyLong or self.LS:
             qty = max(min(round(self.risk_qty_long(), self.qty_precision), (self.available_margin - 1)/ self.price), 0)
-            if qty != 0 and self.vars["enableLong"] and self.signal == "buySignal":
+            if qty != 0 and self.vars["enableLong"] and self.l_st_condition:
                 return True
         else:
             return False
@@ -395,7 +480,7 @@ class TFC(Strategy):
     def should_short(self) -> bool:
         if self.onlyShort or self.LS:
             qty = max(min(round(self.risk_qty_short(), self.qty_precision), (self.available_margin - 1)/ self.price), 0)
-            if qty != 0 and self.vars["enableShort"] and self.signal == "sellSignal":
+            if qty != 0 and self.vars["enableShort"] and self.s_st_condition:
                 return True
         else:
             return False
