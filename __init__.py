@@ -132,6 +132,9 @@ class TFC(Strategy):
         self.pre_dmiTrend                           = 0
         self.lrsiSignal                             = 0
         self.pre_lrsiSignal                         = 0
+        self.aroonOscillatorSignal                  = 0
+        self.pre_aroonOscillatorSignal              = 0
+
 
 
     def hyperparameters(self):
@@ -387,13 +390,22 @@ class TFC(Strategy):
         # SuperTrend 2 Values on First TimeFrame 
         [st2_trend_tf1, st2_changed_tf1] = ta.supertrend(self.candles, period=self.lvars["st2Period"], factor=self.lvars["st2Factor"])
         
+        # Define Aroon Indicator and Determine Status
+        aroonOscillator = ta.aroonosc(self.candles, period=self.lvars["aroonLength"])
+        if utils.crossed(aroonOscillator, -80, "above"):
+            self.aroonOscillatorSignal = 1
+        elif utils.crossed(aroonOscillator, 80, "below"):
+            self.aroonOscillatorSignal = -1
+        else:
+            self.aroonOscillatorSignal = self.pre_aroonOscillatorSignal
+        self.pre_aroonOscillatorSignal = self.aroonOscillatorSignal
 
         # Define Directional Movement Index and Determine Values
         [dmiPlus, dmiMinus] = ta.dm(self.candles, period=self.lvars["dmiLength"])
 
         if utils.crossed(dmiPlus, dmiMinus, 'above'):
             self.dmiTrend = 1
-        elif utils.crossed(dmiPlus, dmiMinus, 'under'):
+        elif utils.crossed(dmiPlus, dmiMinus, 'below'):
             self.dmiTrend = -1
         else:
             self.dmiTrend = self.pre_dmiTrend
@@ -410,7 +422,7 @@ class TFC(Strategy):
         
         if utils(lrsi, lrsiOverSold, 'above'):
             self.lrsiSignal = 1
-        elif utils(lrsi, lrsiOverBought, 'under'):
+        elif utils(lrsi, lrsiOverBought, 'below'):
             self.lrsiSignal = -1
         else:
             self.lrsiSignal = self.pre_lrsiSignal
@@ -433,13 +445,22 @@ class TFC(Strategy):
         # SuperTrend 2 Values on First TimeFrame 
         [st2_trend_tf1, st2_changed_tf1] = ta.supertrend(self.candles, period=self.svars["st2Period"], factor=self.svars["st2Factor"])
         
+        # Define Aroon Indicator and Determine Status
+        aroonOscillator = ta.aroonosc(self.candles, period=self.svars["aroonLength"])
+        if utils.crossed(aroonOscillator, -80, "above"):
+            self.aroonOscillatorSignal = 1
+        elif utils.crossed(aroonOscillator, 80, "below"):
+            self.aroonOscillatorSignal = -1
+        else:
+            self.aroonOscillatorSignal = self.pre_aroonOscillatorSignal
+        self.pre_aroonOscillatorSignal = self.aroonOscillatorSignal
 
         # Define Directional Movement Index and Determine Values
         [dmiPlus, dmiMinus] = ta.dm(self.candles, period=self.svars["dmiLength"])
 
         if utils.crossed(dmiPlus, dmiMinus, 'above'):
             self.dmiTrend = 1
-        elif utils.crossed(dmiPlus, dmiMinus, 'under'):
+        elif utils.crossed(dmiPlus, dmiMinus, 'below'):
             self.dmiTrend = -1
         else:
             self.dmiTrend = self.pre_dmiTrend
@@ -456,7 +477,7 @@ class TFC(Strategy):
        
         if utils(lrsi, lrsiOverSold, 'above'):
             self.lrsiSignal = 1
-        elif utils(lrsi, lrsiOverBought, 'under'):
+        elif utils(lrsi, lrsiOverBought, 'below'):
             self.lrsiSignal = -1
         else:
             self.lrsiSignal = self.pre_lrsiSignal
