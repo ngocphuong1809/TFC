@@ -408,10 +408,10 @@ class TFC(Strategy):
             stComboTrend = stComboTrend_Tf1
         
         # Define Aroon Indicator and Determine Status
-        [aroonIndicatorUpper, AroonIndicatorLower] = ta.aroon(self.candles, period=self.lvars["aroonLength"])
-        if utils.crossed(aroonIndicatorUpper, AroonIndicatorLower, "above"):
+        [aroonIndicatorUpper, aroonIndicatorLower] = ta.aroon(self.candles, period=self.lvars["aroonLength"])
+        if utils.crossed(aroonIndicatorUpper, aroonIndicatorLower, "above"):
             self.aroonIndicatorTrend = 1
-        elif  utils.crossed(AroonIndicatorLower, aroonIndicatorUpper, "above"):
+        elif  utils.crossed(aroonIndicatorLower, aroonIndicatorUpper, "above"):
             self.aroonIndicatorTrend = -1
         else:
             self.aroonIndicatorTrend = self.pre_aroonIndicatorTrend
@@ -539,10 +539,10 @@ class TFC(Strategy):
             stComboTrend = stComboTrend_Tf1
 
         # Define Aroon Indicator and Determine Status
-        [aroonIndicatorUpper, AroonIndicatorLower] = ta.aroon(self.candles, period=self.svars["aroonLength"])
-        if utils.crossed(aroonIndicatorUpper, AroonIndicatorLower, "above"):
+        [aroonIndicatorUpper, aroonIndicatorLower] = ta.aroon(self.candles, period=self.svars["aroonLength"])
+        if utils.crossed(aroonIndicatorUpper, aroonIndicatorLower, "above"):
             self.aroonIndicatorTrend = 1
-        elif  utils.crossed(AroonIndicatorLower, aroonIndicatorUpper, "above"):
+        elif  utils.crossed(aroonIndicatorLower, aroonIndicatorUpper, "above"):
             self.aroonIndicatorTrend = -1
         else:
             self.aroonIndicatorTrend = self.pre_aroonIndicatorTrend
