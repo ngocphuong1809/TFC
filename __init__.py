@@ -1,3 +1,4 @@
+from cmath import nan
 from jesse.strategies import Strategy, cached
 import jesse.indicators as ta
 from jesse import utils
@@ -29,9 +30,9 @@ class TFC(Strategy):
         self.is_optimising                          = False
         self.params_overdrive                       = True          ## Overwrite params to file, turn off for production, turn on for testing / optimizing
         
-        self.pyramiding_levels = 0
-        self.last_opened_price = 0
-        self.last_was_profitable = False
+        self.pyramiding_levels                      = 0
+        self.last_opened_price                      = 0
+        self.last_was_profitable                    = False
         self.pre_index                              = 0
         self.qty                                    = 0
 
@@ -132,9 +133,12 @@ class TFC(Strategy):
         self.pre_dmiTrend                           = 0
         self.lrsiSignal                             = 0
         self.pre_lrsiSignal                         = 0
+        self.aroonIndicatorTrend                    = 0
+        self.pre_aroonIndicatorTrend                = 0
         self.aroonOscillatorSignal                  = 0
         self.pre_aroonOscillatorSignal              = 0
-
+        self.trendStrength                          = 0
+        self.pre_trendStrength                          = 0
 
 
     def hyperparameters(self):
@@ -362,35 +366,58 @@ class TFC(Strategy):
         else:
             return 1
 
-    # // Determine Strength of Trend Based on Status of All Indicators
-    # MaTrendCalc = StComboTrend == MaTrend ? StComboTrend : 0
-    # AroonIndictorTrendCalc = StComboTrend == AroonIndictorTrend ? StComboTrend : 0
-    # AroonOscillatorSignalCalc = StComboTrend == AroonOscillatorSignal ? StComboTrend : 0
-    # DmiTrendCalc = StComboTrend == DmiTrend ? StComboTrend : 0
-    # LrsiSignalCalc = StComboTrend == LrsiSignal ? StComboTrend : 0
-    # TrendStrength = MaTrendCalc + AroonIndictorTrendCalc + AroonOscillatorSignalCalc + DmiTrendCalc + LrsiSignalCalc
-
-    # // Plot Entry Arrows
-    # EntryDirection = 0
-    # EntryDirection := StComboTrend == 1 and TrendStrength >= Threshold and TrendStrength[1] < Threshold ? 1 : StComboTrend == -1 and TrendStrength <= -Threshold and TrendStrength[1] > -Threshold ? -1 : EntryDirection[1]
-    
-   
-
-    # longCondition := barstate.isconfirmed and enableLong and inDateRange and StComboTrend == 1 and TrendStrength >= Threshold and TrendStrength[1] < Threshold
-    # shortCondition := barstate.isconfirmed and enableShort and inDateRange and StComboTrend == -1 and TrendStrength <= -Threshold and TrendStrength[1] > -Threshold
-
     @property
     def l_st_condition(self):
         st_condition = False
 
-        
         # SuperTrend 1 Values on First TimeFrame 
         [st1_trend_tf1, st1_changed_tf1] = ta.supertrend(self.candles, period=self.lvars["st1Period"], factor=self.lvars["st1Factor"])
         
         # SuperTrend 2 Values on First TimeFrame 
         [st2_trend_tf1, st2_changed_tf1] = ta.supertrend(self.candles, period=self.lvars["st2Period"], factor=self.lvars["st2Factor"])
         
+        # Determine SuperTrend 1 Values on Second Timeframe
+        if self.vars["confirmationResolution"] == "D":
+            [st1_trend_tf2, st1_changed_tf2] = ta.supertrend(self.get_candles(self.exchange, self.symbol, '1D'), period=self.lvars["st1Period"], factor=self.lvars["st1Factor"])
+
+        # Determine SuperTrend 2 Values on Second Timeframe
+            [st2_trend_tf2, st2_changed_tf2] = ta.supertrend(self.get_candles(self.exchange, self.symbol, '1D'), period=self.lvars["st2Period"], factor=self.lvars["st2Factor"])
+
+        # Combine the SuperTrends on the first timeframe into one, determine values, and plot
+        stComboTrend_Tf1 = 0.0
+        if st1_trend_tf1 == st2_trend_tf1:
+            stComboTrend_Tf1 = st1_trend_tf1
+        else:
+            stComboTrend_Tf1 = nan
+
+        # Combine the SuperTrends on the second timeframe into one, determine values, and plot
+        stComboTrend_Tf2 = 0.0
+        if st1_trend_tf2 == st2_trend_tf2:
+            stComboTrend_Tf2 = st1_trend_tf2
+        else:
+            stComboTrend_Tf2 = nan
+
+        # Determine Overall SuperTrend Direction
+        stComboTrend = 0.0
+        if self.vars["getConfirmation"]:
+            if stComboTrend_Tf1 == stComboTrend_Tf2:
+                stComboTrend = stComboTrend_Tf1
+            else:
+                stComboTrend = nan
+        else:
+            stComboTrend = stComboTrend_Tf1
+        
         # Define Aroon Indicator and Determine Status
+        [aroonIndicatorUpper, AroonIndicatorLower] = ta.aroon(self.candles, period=self.lvars["aroonLength"])
+        if utils.crossed(aroonIndicatorUpper, AroonIndicatorLower, "above"):
+            self.aroonIndicatorTrend = 1
+        elif  utils.crossed(AroonIndicatorLower, aroonIndicatorUpper, "above"):
+            self.aroonIndicatorTrend = -1
+        else:
+            self.aroonIndicatorTrend = self.pre_aroonIndicatorTrend
+        self.pre_aroonIndicatorTrend = self.aroonIndicatorTrend
+
+        # Define Aroon Oscillator and Determine Status
         aroonOscillator = ta.aroonosc(self.candles, period=self.lvars["aroonLength"])
         if utils.crossed(aroonOscillator, -80, "above"):
             self.aroonOscillatorSignal = 1
@@ -428,10 +455,45 @@ class TFC(Strategy):
             self.lrsiSignal = self.pre_lrsiSignal
         self.pre_lrsiSignal = self.lrsiSignal
 
+        
+    # // Determine Strength of Trend Based on Status of All Indicators
+         # MaTrendCalc = StComboTrend == MaTrend ? StComboTrend : 0
+        if stComboTrend == self.maTrend:
+            maTrendCalc = stComboTrend
+        else:
+            maTrendCalc = 0
+        # AroonOscillatorSignalCalc = StComboTrend == AroonOscillatorSignal ? StComboTrend : 0
+        if stComboTrend == self.aroonOscillatorSignal:
+            aroonOscillatorSignalCalc = stComboTrend
+        else:
+            aroonOscillatorSignalCalc = 0
 
+        # AroonIndictorTrendCalc = StComboTrend == AroonIndictorTrend ? StComboTrend : 0
+        if stComboTrend == self.aroonIndicatorTrend:
+            aroonIndicatorTrendCalc = stComboTrend
+        else:
+            aroonIndicatorTrendCalc = 0
+        
+        # DmiTrendCalc = StComboTrend == DmiTrend ? StComboTrend : 0
+        if stComboTrend == self.dmiTrend:
+            dmiTrendCalc = stComboTrend
+        else:
+            dmiTrendCalc = 0
+        
+        # LrsiSignalCalc = StComboTrend == LrsiSignal ? StComboTrend : 0
+        if stComboTrend == self.lrsiSignal:
+            lrsiSignalCalc = stComboTrend
+        else:
+            lrsiSignalCalc = 0
 
+        # TrendStrength = MaTrendCalc + AroonIndictorTrendCalc + AroonOscillatorSignalCalc + DmiTrendCalc + LrsiSignalCalc
+        self.trendStrength = maTrendCalc + aroonIndicatorTrendCalc + aroonOscillatorSignalCalc + dmiTrendCalc + lrsiSignalCalc
 
-
+        # longCondition := barstate.isconfirmed and enableLong and inDateRange and StComboTrend == 1 and TrendStrength >= Threshold and TrendStrength[1] < Threshold
+        if stComboTrend == 1 and self.trendStrength >= self.lvars["threshold"] and self.pre_trendStrength < self.lvars["threshold"]:
+            st_condition = True
+        else:
+            st_condition = False
 
         return st_condition
 
@@ -445,7 +507,48 @@ class TFC(Strategy):
         # SuperTrend 2 Values on First TimeFrame 
         [st2_trend_tf1, st2_changed_tf1] = ta.supertrend(self.candles, period=self.svars["st2Period"], factor=self.svars["st2Factor"])
         
+        # Determine SuperTrend 1 Values on Second Timeframe
+        if self.vars["confirmationResolution"] == "D":
+            [st1_trend_tf2, st1_changed_tf2] = ta.supertrend(self.get_candles(self.exchange, self.symbol, '1D'), period=self.svars["st1Period"], factor=self.svars["st1Factor"])
+
+        # Determine SuperTrend 2 Values on Second Timeframe
+            [st2_trend_tf2, st2_changed_tf2] = ta.supertrend(self.get_candles(self.exchange, self.symbol, '1D'), period=self.svars["st2Period"], factor=self.svars["st2Factor"])
+
+        # Combine the SuperTrends on the first timeframe into one, determine values, and plot
+        stComboTrend_Tf1 = 0.0
+        if st1_trend_tf1 == st2_trend_tf1:
+            stComboTrend_Tf1 = st1_trend_tf1
+        else:
+            stComboTrend_Tf1 = nan
+
+        # Combine the SuperTrends on the second timeframe into one, determine values, and plot
+        stComboTrend_Tf2 = 0.0
+        if st1_trend_tf2 == st2_trend_tf2:
+            stComboTrend_Tf2 = st1_trend_tf2
+        else:
+            stComboTrend_Tf2 = nan
+
+        # Determine Overall SuperTrend Direction
+        stComboTrend = 0.0
+        if self.vars["getConfirmation"]:
+            if stComboTrend_Tf1 == stComboTrend_Tf2:
+                stComboTrend = stComboTrend_Tf1
+            else:
+                stComboTrend = nan
+        else:
+            stComboTrend = stComboTrend_Tf1
+
         # Define Aroon Indicator and Determine Status
+        [aroonIndicatorUpper, AroonIndicatorLower] = ta.aroon(self.candles, period=self.svars["aroonLength"])
+        if utils.crossed(aroonIndicatorUpper, AroonIndicatorLower, "above"):
+            self.aroonIndicatorTrend = 1
+        elif  utils.crossed(AroonIndicatorLower, aroonIndicatorUpper, "above"):
+            self.aroonIndicatorTrend = -1
+        else:
+            self.aroonIndicatorTrend = self.pre_aroonIndicatorTrend
+        self.pre_aroonIndicatorTrend = self.aroonIndicatorTrend
+
+        # Define Aroon Oscillator and Determine Status
         aroonOscillator = ta.aroonosc(self.candles, period=self.svars["aroonLength"])
         if utils.crossed(aroonOscillator, -80, "above"):
             self.aroonOscillatorSignal = 1
@@ -483,12 +586,46 @@ class TFC(Strategy):
             self.lrsiSignal = self.pre_lrsiSignal
         self.pre_lrsiSignal = self.lrsiSignal
 
+        # // Determine Strength of Trend Based on Status of All Indicators
+         # MaTrendCalc = StComboTrend == MaTrend ? StComboTrend : 0
+        if stComboTrend == self.maTrend:
+            maTrendCalc = stComboTrend
+        else:
+            maTrendCalc = 0
+        # AroonOscillatorSignalCalc = StComboTrend == AroonOscillatorSignal ? StComboTrend : 0
+        if stComboTrend == self.aroonOscillatorSignal:
+            aroonOscillatorSignalCalc = stComboTrend
+        else:
+            aroonOscillatorSignalCalc = 0
 
+        # AroonIndictorTrendCalc = StComboTrend == AroonIndictorTrend ? StComboTrend : 0
+        if stComboTrend == self.aroonIndicatorTrend:
+            aroonIndicatorTrendCalc = stComboTrend
+        else:
+            aroonIndicatorTrendCalc = 0
         
+        # DmiTrendCalc = StComboTrend == DmiTrend ? StComboTrend : 0
+        if stComboTrend == self.dmiTrend:
+            dmiTrendCalc = stComboTrend
+        else:
+            dmiTrendCalc = 0
+        
+        # LrsiSignalCalc = StComboTrend == LrsiSignal ? StComboTrend : 0
+        if stComboTrend == self.lrsiSignal:
+            lrsiSignalCalc = stComboTrend
+        else:
+            lrsiSignalCalc = 0
+        
+        # TrendStrength = MaTrendCalc + AroonIndictorTrendCalc + AroonOscillatorSignalCalc + DmiTrendCalc + LrsiSignalCalc
+        self.trendStrength = maTrendCalc + aroonIndicatorTrendCalc + aroonOscillatorSignalCalc + dmiTrendCalc + lrsiSignalCalc
 
+        # shortCondition := barstate.isconfirmed and enableShort and inDateRange and StComboTrend == -1 and TrendStrength <= -Threshold and TrendStrength[1] > -Threshold
+        if stComboTrend == -1 and self.trendStrength <= -self.svars["threshold"] and self.pre_trendStrength > -self.svars["threshold"]:
+            st_condition = True
+        else:
+            st_condition = False
+        
         return st_condition
-
-
 
     def should_long(self) -> bool:
         if self.onlyLong or self.LS:
