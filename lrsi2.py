@@ -1,4 +1,6 @@
 from typing import Union
+
+from matplotlib.pyplot import close
 import lib
 import numpy as np
 from cmath import nan
@@ -23,87 +25,85 @@ def lrsi2(candles: np.ndarray, alpha: float = 0.2, feLength: int = 13, applyFact
     :return: float | np.ndarray
     """
     candles = slice_candles(candles, sequential)
-    # candles = slice_candles(self.candles, sequential=True)
-    pre_close = candles[-2:,2][0]
 
-    open = candles[:, 1][-1]
-    close = candles[:, 2][-1]
-    high = candles[:, 3][-1]
-    low = candles[:, 4][-1]
-    if pre_close == nan:
-        pre_close = 0
-    lrsiOC = (open + pre_close) / 2
-    lrsiHC = max(high, pre_close)
-    lrsiLC = min(low, pre_close)
-    lrsiFeSrc = (lrsiOC + lrsiHC + lrsiLC + close) / 4
-    
-    h = candles[:, 3]
-    l = candles[:, 4]
-    highest = h[0]
-    lowest = l[0]
+    open = candles[:, 1]
+    close = candles[:, 2]
+    high = candles[:, 3]
+    low = candles[:, 4]
+
+    highest = high[0]
+    lowest = low[0]
     for i in range(feLength):
         if i!= 0:
-            if h[-i] < h[-(i-1)]:
-                highest = h[-(i-1)]
-            if l[-i] > l[-(i-1)]:
-                lowest = l[-(i-1)]
-    # LrsiFeAlpha = log(sum((LrsiHC - LrsiLC) / (highest(LrsiFeLength) - lowest(LrsiFeLength)), LrsiFeLength)) / log(LrsiFeLength)
-    if lrsiHC - lrsiLC <= 0 or (highest - lowest):
-        lrsiFeAlpha = 0
-    else:
-        lrsiFeAlpha = math.log(((lrsiHC - lrsiLC)/(highest - lowest)) + feLength) / math.log(feLength)   
-    
-    if applyFactalsEnergy:
-        lrsiAlphaCalc = lrsiFeAlpha
-    else:
-        lrsiAlphaCalc = alpha
+            if high[-i] < high[-(i-1)]:
+                highest = high[-(i-1)]
+            if low[-i] > low[-(i-1)]:
+                lowest = low[-(i-1)]
+
     price = (candles[:, 3] + candles[:, 4]) / 2
-    l0 = np.copy(price)
-    l1 = np.copy(price)
-    l2 = np.copy(price)
-    l3 = np.copy(price)
+    # lrsiOC = np.copy(price)
+    # lrsiHC = np.copy(price)
+    # lrsiLC = np.copy(price)
+    # lrsiFeSrc = np.copy(price)
+    # lrsiFeAlpha = np.copy(price)
+    # lrsiAlphaCalc = np.copy(price)
+    lrsiL0 = np.copy(price)
+    lrsiL1 = np.copy(price)
+    lrsiL2 = np.copy(price)
+    lrsiL3 = np.copy(price)
     rsi = np.zeros_like(price)
 
-
-    for i in range(l0.shape[0]):
-
+    for i in range(lrsiL0.shape[0]):
+        lrsiOC = (open[i] + close[i-1])/2
+        lrsiHC = max(high[i], close[i-1])
+        lrsiLC = min(low[i], close[i-1])
+        lrsiFeSrc = (lrsiOC + lrsiHC + lrsiLC + close[i])/4
+        # print("A: ",lrsiHC - lrsiLC)
+        # print("B: ", highest - lowest)
+        if lrsiHC - lrsiLC <= 0 or highest - lowest <= 0:
+            lrsiFeAlpha = 1
+        else:
+            lrsiFeAlpha = math.log((lrsiHC - lrsiLC)/(highest - lowest) + feLength)/math.log(feLength)
         if applyFactalsEnergy:
+            lrsiAlphaCalc = lrsiFeAlpha
             temp = lrsiFeSrc
         else:
-            temp = close
+            lrsiAlphaCalc = alpha
+            temp = alpha 
 
         gamma = 1 - lrsiAlphaCalc
-        l0[i] = lrsiAlphaCalc * temp + gamma * l0[i-1]
-        l1[i] = -gamma * l0[i] + l1[i-1] + gamma * l1[i-1]
-        l2[i] = -gamma * l1[i] + l1[i-1] + gamma * l2[i-1]
-        l3[i] = -gamma * l1[i] + l1[i-1] + gamma * l3[i-1]
+        lrsiL0[i] = lrsiAlphaCalc * temp + gamma * lrsiL0[i-1]
+        lrsiL1[i] = -gamma * lrsiL0[i] + lrsiL0[i-1] + gamma * lrsiL1[i-1]
+        lrsiL2[i] = -gamma * lrsiL1[i] + lrsiL1[i-1] + gamma * lrsiL2[i-1]
+        lrsiL3[i] = -gamma * lrsiL1[i] + lrsiL2[i-1] + gamma * lrsiL3[i-1]
 
     for i in range(candles[:, 2].shape[0]):
-        cu = 0
-        cd = 0
-        if l0[i] >= l1[i]:
-            cu = l0[i] - l1[i]
+        lrsiCU = 0.0
+        lrsiCD = 0.0
+
+        if lrsiL0[i] >= lrsiL1[i]:
+            lrsiCU = lrsiL0[i] - lrsiL1[i]
         else:
-            cd = l1[i] - l0[i]
+            lrsiCD = lrsiL1[i] - lrsiL0[i]
         
-        if l1[i] >= l2[i]:
-            cu = cu + l1[i] - l2[i]
+        if lrsiL1[i] >= lrsiL2[i]:
+            lrsiCU = lrsiCU + lrsiL1[i] - lrsiL2[i]
         else:
-            cd = cd + l2[i] - l1[i]
+            lrsiCD = lrsiCD + lrsiL2[i] - lrsiL1[i]
 
-        if l2[i] >= l3[i]:
-            cu = cu + l2[i] - l3[i]
+        if lrsiL2[i] >= lrsiL3[i]:
+            lrsiCU = lrsiCU + lrsiL2[i] - lrsiL3[i]
         else:
-            cd = cd + l3[i] - l2[i]
-
-        if cu + cd != 0:
+            lrsiCD = lrsiCD + lrsiL3[i] - lrsiL2[i]
+        
+        if lrsiCU + lrsiCD != 0:
             if applyNormlization:
-                rsi[i] = 100 * cu / (cu + cd)
+                rsi[i] = 100 * lrsiCU / (lrsiCU + lrsiCD)
             else:
-                rsi[i] = cu / (cu + cd)
+                rsi[i] = lrsiCU / (lrsiCU + lrsiCD)
         else:
             rsi[i] = 0
-
+ 
     if sequential:
         return rsi
     else:
