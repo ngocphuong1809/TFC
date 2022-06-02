@@ -1,16 +1,13 @@
 from cmath import nan
-# from turtle import st
 from jesse.strategies import Strategy, cached
 import jesse.indicators as ta
 from jesse import utils
 import numpy as np
 import jesse.helpers as jh
 import utils as tu
+from st import st
 from st2 import st2
 from lrsi2 import lrsi2
-from jesse.store import CandlesState as cs
-
-
 
 class TFC(Strategy):
     def __init__(self):
@@ -20,7 +17,7 @@ class TFC(Strategy):
         self.hps                                    = []
         self.svars                                  = {}
         self.lvars                                  = {}
-        self.data_header                            = ['Index', 'Time', 'Open', 'High', 'Low', 'Close', 'Volume', 'Action', 'Cmt', 'Starting Balance', 'Finishing Balance', 'Profit', 'Qty','SL','TP']
+        self.data_header                            = ['Index', 'Time', 'Open', 'High', 'Low', 'Close', 'Volume', 'Action', 'Cmt', 'Starting Balance', 'Finishing Balance', 'Profit', 'Qty','SL','TP1', 'TP2']
         self.data_log                               = []
         self.indicator_header                       = ['Index', 'Time', ]
         self.indicator_log                          = []
@@ -68,8 +65,8 @@ class TFC(Strategy):
         self.vars["lrsiApplyNormalization"]         = False         # LRSI:Apply Normalization to [0, 100]?
         
         # Long
-        self.lvars["atrSLMultipier"]                = 1.6           # Short ATR SL Multipier
-        self.lvars["atrTPMultipier"]                = 3             # Short ATR TP Multipier
+        self.lvars["atrSLMultipier"]                = 1.3           # Short ATR SL Multipier
+        self.lvars["atrTPMultipier"]                = 2.5             # Short ATR TP Multipier
         # self.lvars["enableTrailingSL"]              = False         # Enable Trailing SL Type 1
         self.lvars["trailingSLPercent"]             = 0.5           # Trailing SL 1 Percent
         # self.lvars["enableTrailingSL2"]             = True          # Enable Trailing SL Type 2: 3 steps
@@ -140,7 +137,7 @@ class TFC(Strategy):
         self.aroonOscillatorSignal                  = 0
         self.pre_aroonOscillatorSignal              = 0
         self.trendStrength                          = 0
-        self.pre_trendStrength                          = 0
+        self.pre_trendStrength                      = 0
 
 
     def hyperparameters(self):
@@ -340,7 +337,7 @@ class TFC(Strategy):
             temp = ta.rma(tr, length=length)
         elif self.vars["atrSmoothing"] == 'SMA':
             temp = ta.sma(tr, period=length)
-        elif self.vars["atrSmoothing"] == ' EMA':
+        elif self.vars["atrSmoothing"] == 'EMA':
             temp = ta.ema(tr, period=length)
         else:
             temp = ta.wma(tr, period=length)
@@ -354,16 +351,10 @@ class TFC(Strategy):
         return temp
     
     # Define EMA Cross and Determine Status
-    @property
-    def ma1(self, emaFast):
-        return ta.ema(self.candles, period=emaFast, source_type="close")
-
-    @property
-    def ma2(self, emaSlow):
-        return ta.ema(self.candles, period=emaSlow, source_type="close")
-
-    def maTrend(self):
-        if self.ma1 < self.ma2:
+    def maTrend(self, emaFast, emaSlow):
+        ma1 = ta.ema(self.candles, period=emaFast, source_type="close")
+        ma2 = ta.ema(self.candles, period=emaSlow, source_type="close")
+        if ma1 < ma2:
             return -1
         else:
             return 1
@@ -373,24 +364,24 @@ class TFC(Strategy):
         st_condition = False
 
         # SuperTrend 1 Values on First TimeFrame 
-        [st1_trend_tf1, st1_changed_tf1] = ta.supertrend(self.candles, period=self.lvars["st1Period"], factor=self.lvars["st1Factor"])
-        print("ST1 TF1: ", st1_trend_tf1, st1_changed_tf1)
+        [st1_trend_tf1, st1_changed_tf1] = st(self.candles, period=self.lvars["st1Period"], factor=self.lvars["st1Factor"])
+        # print("ST1 TF1: ", st1_trend_tf1, st1_changed_tf1)
         
         # SuperTrend 2 Values on First TimeFrame 
-        [st2_trend_tf1, st2_changed_tf1] = ta.supertrend(self.candles, period=self.lvars["st2Period"], factor=self.lvars["st2Factor"])
-        print("ST2 TF1: ", st2_trend_tf1, st2_changed_tf1)
+        [st2_trend_tf1, st2_changed_tf1] = st(self.candles, period=self.lvars["st2Period"], factor=self.lvars["st2Factor"])
+        # print("ST2 TF1: ", st2_trend_tf1, st2_changed_tf1)
         
         # Determine SuperTrend 1 Values on Second Timeframe
         if self.vars["confirmationResolution"] == "D":
             # [st1_trend_tf2, st1_changed_tf2] = st2(self.candles, self.exchange, self.symbol, '1D', period=self.lvars["st1Period"], factor=self.lvars["st1Factor"])
             [st1_trend_tf2, st1_changed_tf2] = st2(self.get_candles(self.exchange, self.symbol, '1D'), period=self.lvars["st1Period"], factor=self.lvars["st1Factor"])
-            print("ST1 TF2: ", st1_trend_tf2, st1_changed_tf2)
+            # print("ST1 TF2: ", st1_trend_tf2, st1_changed_tf2)
 
 
         # Determine SuperTrend 2 Values on Second Timeframe
             # [st2_trend_tf2, st2_changed_tf2] = st2(self.candles, self.exchange, self.symbol, '1D', period=self.lvars["st2Period"], factor=self.lvars["st2Factor"])
             [st2_trend_tf2, st2_changed_tf2] = st2(self.get_candles(self.exchange, self.symbol, '1D'), period=self.lvars["st2Period"], factor=self.lvars["st2Factor"])
-            print("ST2 TF2: ", st2_trend_tf2, st2_changed_tf2)
+            # print("ST2 TF2: ", st2_trend_tf2, st2_changed_tf2)
 
         # Combine the SuperTrends on the first timeframe into one, determine values, and plot
         stComboTrend_Tf1 = 0.0
@@ -422,26 +413,27 @@ class TFC(Strategy):
         
         # Define Aroon Indicator and Determine Status
         [aroonIndicatorUpper, aroonIndicatorLower] = ta.aroon(self.candles, period=self.lvars["aroonLength"], sequential=True)
-        if utils.crossed(aroonIndicatorUpper, aroonIndicatorLower, "above"):
+        if utils.crossed(aroonIndicatorUpper, aroonIndicatorLower, 'above'):
             self.aroonIndicatorTrend = 1
-        elif  utils.crossed(aroonIndicatorLower, aroonIndicatorUpper, "above"):
+        elif  utils.crossed(aroonIndicatorLower, aroonIndicatorUpper, 'above'):
             self.aroonIndicatorTrend = -1
         else:
             self.aroonIndicatorTrend = self.pre_aroonIndicatorTrend
-        print("pre aroonIndicatorTrend: ", self.pre_aroonIndicatorTrend)
+        # print("pre aroonIndicatorTrend: ", self.pre_aroonIndicatorTrend)
         print("aroonIndicatorTrend: ", self.aroonIndicatorTrend)
 
         self.pre_aroonIndicatorTrend = self.aroonIndicatorTrend
 
         # Define Aroon Oscillator and Determine Status
-        aroonOscillator = ta.aroonosc(self.candles, period=self.lvars["aroonLength"], sequential=True)
-        if utils.crossed(aroonOscillator, -80, "above"):
+        # aroonOscillator = ta.aroonosc(self.candles, period=self.lvars["aroonLength"], sequential=True)
+        aroonOscillator = aroonIndicatorUpper - aroonIndicatorLower
+        if utils.crossed(aroonOscillator, -80, 'above'):
             self.aroonOscillatorSignal = 1
-        elif utils.crossed(aroonOscillator, 80, "below"):
+        elif utils.crossed(aroonOscillator, 80, 'below'):
             self.aroonOscillatorSignal = -1
         else:
             self.aroonOscillatorSignal = self.pre_aroonOscillatorSignal
-        print("pre aroonOscillator Signal: ", self.pre_aroonOscillatorSignal)
+        # print("pre aroonOscillator Signal: ", self.pre_aroonOscillatorSignal)
         print("aroonOscillator Signal: ", self.aroonOscillatorSignal)
 
         self.pre_aroonOscillatorSignal = self.aroonOscillatorSignal
@@ -451,11 +443,11 @@ class TFC(Strategy):
 
         if utils.crossed(dmiPlus, dmiMinus, 'above'):
             self.dmiTrend = 1
-        elif utils.crossed(dmiPlus, dmiMinus, 'below'):
+        elif utils.crossed(dmiMinus, dmiPlus, 'above'):
             self.dmiTrend = -1
         else:
             self.dmiTrend = self.pre_dmiTrend
-        print("pre dmiTrend: ", self.pre_dmiTrend)
+        # print("pre dmiTrend: ", self.pre_dmiTrend)
         print("dmiTrend: ", self.dmiTrend)
 
         self.pre_dmiTrend = self.dmiTrend
@@ -470,8 +462,8 @@ class TFC(Strategy):
             lrsiMult = 1
         lrsiOverBought = 0.8 * lrsiMult
         lrsiOverSold = 0.2 * lrsiMult
-        print("lrsiOverBought: ", lrsiOverBought)
-        print("lrsiOverSold: ", lrsiOverSold)
+        # print("lrsiOverBought: ", lrsiOverBought)
+        # print("lrsiOverSold: ", lrsiOverSold)
         
         if utils.crossed(lrsi, lrsiOverSold, 'above'):
             self.lrsiSignal = 1
@@ -479,7 +471,7 @@ class TFC(Strategy):
             self.lrsiSignal = -1
         else:
             self.lrsiSignal = self.pre_lrsiSignal
-        print("pre lrsiSignal: ", self.pre_lrsiSignal)
+        # print("pre lrsiSignal: ", self.pre_lrsiSignal)
         print("lrsiSignal: ", self.lrsiSignal)
 
         self.pre_lrsiSignal = self.lrsiSignal
@@ -487,7 +479,7 @@ class TFC(Strategy):
         
     # // Determine Strength of Trend Based on Status of All Indicators
          # MaTrendCalc = StComboTrend == MaTrend ? StComboTrend : 0
-        if stComboTrend == self.maTrend:
+        if stComboTrend == self.maTrend(self.lvars["emaFast"], self.lvars["emaSlow"]):
             maTrendCalc = stComboTrend
         else:
             maTrendCalc = 0
@@ -523,7 +515,7 @@ class TFC(Strategy):
 
         # TrendStrength = MaTrendCalc + AroonIndictorTrendCalc + AroonOscillatorSignalCalc + DmiTrendCalc + LrsiSignalCalc
         self.trendStrength = maTrendCalc + aroonIndicatorTrendCalc + aroonOscillatorSignalCalc + dmiTrendCalc + lrsiSignalCalc
-        print("pre trendLength: ", self.pre_trendStrength)
+        # print("pre trendLength: ", self.pre_trendStrength)
         print("trendLength: ", self.trendStrength)
 
 
@@ -540,23 +532,23 @@ class TFC(Strategy):
         st_condition = False
 
         # SuperTrend 1 Values on First TimeFrame 
-        [st1_trend_tf1, st1_changed_tf1] = ta.supertrend(self.candles, period=self.svars["st1Period"], factor=self.svars["st1Factor"])
-        print("ST1 TF1: ", st1_trend_tf1, st1_changed_tf1)
+        [st1_trend_tf1, st1_changed_tf1] = st(self.candles, period=self.svars["st1Period"], factor=self.svars["st1Factor"])
+        # print("ST1 TF1: ", st1_trend_tf1, st1_changed_tf1)
         
         # SuperTrend 2 Values on First TimeFrame 
-        [st2_trend_tf1, st2_changed_tf1] = ta.supertrend(self.candles, period=self.svars["st2Period"], factor=self.svars["st2Factor"])
-        print("ST2 TF1: ", st2_trend_tf1, st2_changed_tf1)
+        [st2_trend_tf1, st2_changed_tf1] = st(self.candles, period=self.svars["st2Period"], factor=self.svars["st2Factor"])
+        # print("ST2 TF1: ", st2_trend_tf1, st2_changed_tf1)
         
         # Determine SuperTrend 1 Values on Second Timeframe
         if self.vars["confirmationResolution"] == "D":
             
             [st1_trend_tf2, st1_changed_tf2] = st2(self.get_candles(self.exchange, self.symbol, '1D'), period=self.svars["st1Period"], factor=self.svars["st1Factor"])
-            print("ST1 TF2: ", st1_trend_tf2, st1_changed_tf2)
+            # print("ST1 TF2: ", st1_trend_tf2, st1_changed_tf2)
 
 
         # Determine SuperTrend 2 Values on Second Timeframe
             [st2_trend_tf2, st2_changed_tf2] = st2(self.get_candles(self.exchange, self.symbol, '1D'), period=self.svars["st2Period"], factor=self.svars["st2Factor"])
-            print("ST2 TF2: ", st2_trend_tf2, st2_changed_tf2)
+            # print("ST2 TF2: ", st2_trend_tf2, st2_changed_tf2)
 
 
         # Combine the SuperTrends on the first timeframe into one, determine values, and plot
@@ -589,41 +581,41 @@ class TFC(Strategy):
         
         # Define Aroon Indicator and Determine Status
         [aroonIndicatorUpper, aroonIndicatorLower] = ta.aroon(self.candles, period=self.svars["aroonLength"], sequential=True)
-        if utils.crossed(aroonIndicatorUpper, aroonIndicatorLower, "above"):
+        if utils.crossed(aroonIndicatorUpper, aroonIndicatorLower, 'above'):
             self.aroonIndicatorTrend = 1
-        elif  utils.crossed(aroonIndicatorLower, aroonIndicatorUpper, "above"):
+        elif  utils.crossed(aroonIndicatorLower, aroonIndicatorUpper, 'above'):
             self.aroonIndicatorTrend = -1
         else:
             self.aroonIndicatorTrend = self.pre_aroonIndicatorTrend
-        print("pre aroonIndicatorTrend: ", self.pre_aroonIndicatorTrend)
+        # print("pre aroonIndicatorTrend: ", self.pre_aroonIndicatorTrend)
         print("aroonIndicatorTrend: ", self.aroonIndicatorTrend)
 
         self.pre_aroonIndicatorTrend = self.aroonIndicatorTrend
 
         # Define Aroon Oscillator and Determine Status
         aroonOscillator = ta.aroonosc(self.candles, period=self.svars["aroonLength"], sequential=True)
-        if utils.crossed(aroonOscillator, -80, "above"):
+        if utils.crossed(aroonOscillator, -80, 'above'):
             self.aroonOscillatorSignal = 1
-        elif utils.crossed(aroonOscillator, 80, "below"):
+        elif utils.crossed(aroonOscillator, 80, 'below'):
             self.aroonOscillatorSignal = -1
         else:
             self.aroonOscillatorSignal = self.pre_aroonOscillatorSignal
-        print("pre aroonOscillatorSignal: ", self.pre_aroonOscillatorSignal)
+        # print("pre aroonOscillatorSignal: ", self.pre_aroonOscillatorSignal)
         print("aroonOscillatorSignal: ", self.aroonOscillatorSignal)
 
         self.pre_aroonOscillatorSignal = self.aroonOscillatorSignal
 
         # Define Directional Movement Index and Determine Values
         [dmiPlus, dmiMinus] = ta.dm(self.candles, period=self.svars["dmiLength"], sequential=True)
-        print("dmi: ", dmiPlus, dmiMinus)
+        # print("dmi: ", dmiPlus, dmiMinus)
 
         if utils.crossed(dmiPlus, dmiMinus, 'above'):
             self.dmiTrend = 1
-        elif utils.crossed(dmiPlus, dmiMinus, 'below'):
+        elif utils.crossed(dmiMinus, dmiPlus, 'above'):
             self.dmiTrend = -1
         else:
             self.dmiTrend = self.pre_dmiTrend
-        print("pre dmiTrend: ", self.pre_dmiTrend)
+        # print("pre dmiTrend: ", self.pre_dmiTrend)
         print("dmiTrend: ", self.dmiTrend)
 
         self.pre_dmiTrend = self.dmiTrend
@@ -635,10 +627,11 @@ class TFC(Strategy):
             lrsiMult = 100
         else:
             lrsiMult = 1
+        print(lrsiMult)
         lrsiOverBought = 0.8 * lrsiMult
         lrsiOverSold = 0.2 * lrsiMult
-        print("lrsiOverBought: ", lrsiOverBought)
-        print("lrsiOverSold: ", lrsiOverSold)
+        # print("lrsiOverBought: ", lrsiOverBought)
+        # print("lrsiOverSold: ", lrsiOverSold)
        
         if utils.crossed(lrsi, lrsiOverSold, 'above'):
             self.lrsiSignal = 1
@@ -646,14 +639,14 @@ class TFC(Strategy):
             self.lrsiSignal = -1
         else:
             self.lrsiSignal = self.pre_lrsiSignal
-        print(" pre lrsiSignal: ", self.pre_lrsiSignal)
+        # print(" pre lrsiSignal: ", self.pre_lrsiSignal)
         print("lrsiSignal: ", self.lrsiSignal)
 
         self.pre_lrsiSignal = self.lrsiSignal
 
         # // Determine Strength of Trend Based on Status of All Indicators
          # MaTrendCalc = StComboTrend == MaTrend ? StComboTrend : 0
-        if stComboTrend == self.maTrend:
+        if stComboTrend == self.maTrend(self.svars["emaFast"], self.svars["emaSlow"]):
             maTrendCalc = stComboTrend
         else:
             maTrendCalc = 0
@@ -719,9 +712,6 @@ class TFC(Strategy):
 
     def go_long(self):
         qty = max(min(round(self.risk_qty_long(), self.qty_precision), (self.available_margin - 1)/ self.price), 0)
-
-        if qty == 0:
-            return
         self.buy = qty, self.price
         self.pyramiding_levels = 1 # Track the pyramiding level
     
@@ -766,9 +756,6 @@ class TFC(Strategy):
 
     def go_short(self):
         qty = max(min(round(self.risk_qty_short(), self.qty_precision), (self.available_margin - 1)/ self.price), 0)
-        if qty == 0 :
-            return
-     
         self.sell = qty, self.price
 
         self.pyramiding_levels = 1 # Track the pyramiding level
